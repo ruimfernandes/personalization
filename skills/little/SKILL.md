@@ -98,6 +98,12 @@ Draft the PR body in repository-ready Markdown.
 2. Inspect the branch diff and included commits.
 3. Fill the template exactly, preserving section order and checklist structure.
 
+### Verbatim Question Text
+
+- Reproduce every question, heading, and label from the template **byte-for-byte**, including punctuation, capitalisation, and whitespace. Copy the text from the file rather than retyping it.
+- Do **not** "correct" what looks like a typo. If a question ends with `PR??` or contains other apparent mistakes, keep it exactly as written — CI matches the PR body against the canonical template by exact text, so any change (even fixing a doubled `?`) makes the question fail to match and the check reports it as missing.
+- The only text you add is your own answers and the checklist ticks. Never alter the question text itself.
+
 ### Required Template Behavior
 
 - `Why`: include the ticket link when available plus a concise summary of what changed and why. Render the ticket link with the full URL as the link text, not a label like `Task`. For example, use `[https://get-sona.atlassian.net/browse/CORE-2294](https://get-sona.atlassian.net/browse/CORE-2294)`, not `[Task](https://get-sona.atlassian.net/browse/CORE-2294)`.
