@@ -31,6 +31,20 @@ If the request is ambiguous, ask one short clarifying question.
 - When a repository contains `.github/pull_request_template.md`, use that template's structure and ordering exactly for PR description work.
 - Use HEREDOCs for multiline commit messages and `gh pr create` bodies.
 
+## Branch Naming
+
+When creating a new branch (e.g. because work is currently on the default branch `main`/`master`, or the user asks to start a branch), name it with the `rf/` prefix followed by an optional ticket id and a brief description:
+
+- **With a ticket:** `rf/<ticket-id>-<brief-description>`, e.g. `rf/core-3132-absence-modal-old-shifts`.
+- **Without a ticket:** `rf/<brief-description>`, e.g. `rf/absence-modal-old-shifts`.
+
+Rules:
+
+- The ticket id is lowercased in the branch name (`CORE-3132` → `core-3132`).
+- `<brief-description>` is a kebab-case summary of the change, **at most 6 words**, no trailing punctuation.
+- Derive the ticket id from the JIRA link or an existing ticket in context. If none is available, omit it — do **not** put `missing-ticket-id` in the branch name.
+- Never create a branch off uncommitted work without staging it into the new branch (`git checkout -b <name>` preserves the working tree).
+
 ## Mode: Little commit message
 
 Draft a ready-to-use commit message from the relevant diff.
@@ -75,10 +89,11 @@ Create a git commit when the user explicitly asks for it.
    - all untracked and modified files with `git status`
    - staged and unstaged changes with `git diff`
    - recent commit messages with `git log`
-2. Decide which files belong in the commit and stage only those.
-3. Draft the message using the `Little commit message` rules.
-4. Create the commit with a HEREDOC message.
-5. Run `git status` after the commit to verify success.
+2. If the current branch is the default branch (`main`/`master`), create a new branch first following `Branch Naming` (`git checkout -b <name>` keeps the working tree intact).
+3. Decide which files belong in the commit and stage only those.
+4. Draft the message using the `Little commit message` rules.
+5. Create the commit with a HEREDOC message.
+6. Run `git status` after the commit to verify success.
 
 ### Rules
 
@@ -159,7 +174,7 @@ Create the PR when the user explicitly asks for it.
   - `https://get-sona.atlassian.net/browse/DOC-3148` → `DOC-3148`
   - `https://get-sona.atlassian.net/browse/CORE-3386` → `CORE-3386`
 - `Description` is a concise summary of the change in imperative mood, e.g. `CORE-3386: Add retry logic to webhook dispatcher`.
-- If no JIRA identifier can be found, ask the user for the ticket id before creating the PR.
+- If no JIRA identifier can be found, do **not** block on asking for one — use the literal prefix `[MISSING-TICKET-ID]` instead, e.g. `[MISSING-TICKET-ID]: Add retry logic to webhook dispatcher`.
 
 ### Rules
 
