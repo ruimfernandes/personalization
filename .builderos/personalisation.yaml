@@ -6,17 +6,12 @@ apply:
       script: setup/install-skills.sh
       run_as: dev
 
-  # 2. Install OpenSpec globally.
-  - run_script:
-      script: setup/install-openspec.sh
-      run_as: dev
-
-  # 3. Add my git/mix aliases to the shell.
+  # 2. Add my git/mix aliases to the shell.
   - run_script:
       script: setup/setup-aliases.sh
       run_as: dev
 
-  # 4. Install the Elixir-in-Docker `mix` wrapper and start building the dev
+  # 3. Install the Elixir-in-Docker `mix` wrapper and start building the dev
   #    image (from the project's backend/Dockerfile.dev) in the background.
   - run_script:
       script: setup/install-elixir-docker.sh
