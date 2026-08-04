@@ -1,6 +1,7 @@
 ---
 name: db-changer
 description: Switch the local PostgreSQL database used by both the postgres MCP server (.mcp.json at the repo/worktree root) and docker-compose.override.yml. Use when the user starts a prompt with `/db-changer` followed by a DB_NAME, or asks to point the local environment at a different database.
+model: haiku
 ---
 
 # DB Changer
