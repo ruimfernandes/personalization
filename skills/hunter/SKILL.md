@@ -481,14 +481,24 @@ git push
 
 Capture the SHAs of every commit Hunter created (Parts A, B, C, and D) so each comment can be replied to with its specific commit hash. Keep the comment-id → commit-sha mapping you tracked in Steps B5, C4, and D4.
 
+For each captured SHA, also grab its commit name (subject line) and build its commit URL:
+
+```bash
+git log -1 --format=%s {commit_sha}
+```
+
+```
+https://github.com/{owner}/{repo}/commit/{commit_sha}
+```
+
 ### Step E2: Reply to Addressed Comments
 
-For each CodeRabbit / github-actions / reviewer inline comment that Hunter addressed with a commit, post a reply using the comment's full SHA (not the abbreviated form):
+For each CodeRabbit / github-actions / reviewer inline comment that Hunter addressed with a commit, post a reply naming the commit, with the hash linked to its commit URL — a later rebase can rewrite the SHA into a dangling reference, so the commit name keeps the reply meaningful even if the linked hash no longer resolves:
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
   --method POST \
-  --field body="Change applied on commit {commit_sha}"
+  --field body="Change applied on commit {commit_name}([{commit_sha}](https://github.com/{owner}/{repo}/commit/{commit_sha}))"
 ```
 
 Use the inline comment's `id` (e.g. `PRRC_xxx` or numeric ID returned by `gh api`) for `{comment_id}`. One reply per addressed comment — even if multiple comments map to the same commit, reply on each individually.
@@ -506,7 +516,7 @@ gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
 The explanation should be specific — say *why* the change wasn't applied, not just "skipped". Examples:
 - `Hunter (Rui's skill) feedback: false positive — this code path is only reached when {condition}, so the suggested guard is unnecessary.`
 - `Hunter (Rui's skill) feedback: out of scope for this PR — the refactor would touch {N} unrelated callers; tracked separately.`
-- `Hunter (Rui's skill) feedback: already addressed in commit {sha} via a different approach.`
+- `Hunter (Rui's skill) feedback: already addressed in commit {commit_name}([{sha}](https://github.com/{owner}/{repo}/commit/{sha})) via a different approach.`
 
 ### Step E4: Reply to Discussion-Only Reviewer Comments
 
@@ -525,7 +535,7 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 - **Review-summary findings** (from `/pulls/{pr_number}/reviews`) have no per-finding comment ID — note them in the final summary instead of replying.
 - **Resolved threads** are skipped silently — no reply needed.
 - **Already-addressed comments** (where someone else's earlier reply or commit already mentions the fix) are skipped silently — no reply needed.
-- Always use the full commit SHA in `Change applied on commit {sha}` so the reply remains unambiguous after future force-pushes or rebases.
+- Always use the format `commit name([{sha}](https://github.com/{owner}/{repo}/commit/{sha}))` — the full SHA link resolves regardless of future force-pushes or rebases, and the commit name keeps the reply readable even when the PR UI shows a different (rebased) short hash.
 
 ---
 
