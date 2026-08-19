@@ -443,6 +443,14 @@ For each unresolved reviewer comment, classify it:
 2. **Actionable** (a concrete change request or suggestion): apply the fix (Step D4)
 3. **Discussion-only** (a question, opinion, or request for clarification with no clear single fix): do **not** guess at a code change — reply with an answer in Step E, or, if the right action is genuinely ambiguous, **ask the user** before proceeding (per the "Ask if unclear" rule)
 
+### Step D3a: Detect "Matt Pocock" Format Comments
+
+Independently of the actionable/discussion-only classification above, check whether the comment matches the **"Matt Pocock" format**: authored by `ruimfernandes` (or the reviewer login the user specified) **and** its body text begins with the literal header `## Matt Pocock`.
+
+If it matches, tag it for the extra handling in **Step E3a** — regardless of whether it ends up actioned (Step D4), or resolved via discussion (Step E4). Track, per matched comment:
+- Its `comment_id` and source endpoint (inline `/pulls/comments`, issue `/issues/comments`, or review-summary `/pulls/{pr_number}/reviews`)
+- Whether it was **applied** (a fix was committed) or **deferred** (skipped, discussion-only, or otherwise not applied) and, if deferred, a short reason
+
 ### Step D4: Process Each Actionable Comment
 
 1. **Read the file** at the specified path
@@ -466,6 +474,7 @@ Add to the final summary:
 - Comments addressed (with commit hashes)
 - Comments answered without a code change (discussion-only)
 - Comments skipped (and why — resolved, already fixed)
+- "Matt Pocock" format comments detected (and whether each was marked ✅ applied or ❌ deferred)
 
 ---
 
@@ -518,6 +527,35 @@ The explanation should be specific — say *why* the change wasn't applied, not 
 - `Hunter (Rui's skill) feedback: out of scope for this PR — the refactor would touch {N} unrelated callers; tracked separately.`
 - `Hunter (Rui's skill) feedback: already addressed in commit {commit_name}([{sha}](https://github.com/{owner}/{repo}/commit/{sha})) via a different approach.`
 
+### Step E3a: Update "Matt Pocock" Format Comments
+
+For every comment tagged in **Step D3a**, do this **in addition to** the normal reply (Step E2 if applied, Step E3/E4 if deferred/discussion-only) — never instead of it:
+
+1. **Fetch the current comment body** (e.g. via `gh api repos/{owner}/{repo}/pulls/comments/{comment_id}`, or the issue/review equivalent) so the edit preserves everything except the header line.
+2. **Append a status marker to the `## Matt Pocock` header line only**, leaving the rest of the body untouched:
+   - **Applied**: `## Matt Pocock ✅ (applied)`
+   - **Deferred**: `## Matt Pocock ❌ (deferred — {short reason})`
+3. **PATCH the comment** using the endpoint matching its source:
+
+```bash
+# Inline PR review comment
+gh api repos/{owner}/{repo}/pulls/comments/{comment_id} \
+  --method PATCH \
+  --field body="{full body, header line replaced with the marker version}"
+
+# Issue-level (PR thread) comment
+gh api repos/{owner}/{repo}/issues/comments/{comment_id} \
+  --method PATCH \
+  --field body="{full body, header line replaced with the marker version}"
+
+# PR review summary body
+gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews/{review_id} \
+  --method PUT \
+  --field body="{full body, header line replaced with the marker version}"
+```
+
+The reason text for a deferred marker should match the reason given in the accompanying reply (Step E3's explanation or Step E4's answer) — keep them consistent.
+
 ### Step E4: Reply to Discussion-Only Reviewer Comments
 
 For each human reviewer comment classified as discussion-only in Step D3 (a question or clarification with no code change), post a direct answer using the Hunter feedback prefix:
@@ -532,10 +570,11 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 
 ### Step E5: Notes
 
-- **Review-summary findings** (from `/pulls/{pr_number}/reviews`) have no per-finding comment ID — note them in the final summary instead of replying.
+- **Review-summary findings** (from `/pulls/{pr_number}/reviews`) have no per-finding comment ID — note them in the final summary instead of replying. Exception: a **"Matt Pocock" format** review-summary body (Step D3a) is addressable as a whole via its `review_id`, so it still gets the Step E3a edit even though it has no reply thread.
 - **Resolved threads** are skipped silently — no reply needed.
 - **Already-addressed comments** (where someone else's earlier reply or commit already mentions the fix) are skipped silently — no reply needed.
 - Always use the format `commit name([{sha}](https://github.com/{owner}/{repo}/commit/{sha}))` — the full SHA link resolves regardless of future force-pushes or rebases, and the commit name keeps the reply readable even when the PR UI shows a different (rebased) short hash.
+- **"Matt Pocock" format comments** (Step D3a) always get both the normal reply/answer *and* the Step E3a header-marker edit — the edit never replaces the reply.
 
 ---
 
@@ -562,6 +601,8 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 - **Not all comments are fixes**: Treat questions/clarifications as discussion-only — answer them (Step E4) rather than guessing at a code change
 - **Ambiguous requests**: If the right fix isn't clear, ask the user before applying anything (per "Ask if unclear")
 - **Duplicate of a bot comment**: If the reviewer echoes something a bot already flagged, the earlier Part B/C fix counts — skip the duplicate and reply noting it
+- **"Matt Pocock" format comments**: A comment from `ruimfernandes` (or the specified reviewer) whose body begins with the literal header `## Matt Pocock` gets the extra Step D3a/E3a treatment — a ✅/❌ marker appended to its header line — on top of the normal reply, whether it was applied or deferred
+- **Multiple "Matt Pocock" items in one comment**: If a single comment body contains several `## Matt Pocock` sections (e.g. a checklist with repeated headers), mark each header line individually based on the outcome of its own item — don't collapse them into one marker
 
 ### GitHub Actions / CI
 - **All checks passing**: Skip Part A and proceed directly to Part B (CodeRabbit comments)
