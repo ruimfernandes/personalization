@@ -447,9 +447,26 @@ For each unresolved reviewer comment, classify it:
 
 Independently of the actionable/discussion-only classification above, check whether the comment matches the **"Matt Pocock" format**: authored by `ruimfernandes` (or the reviewer login the user specified) **and** its body text begins with the literal header `## Matt Pocock`.
 
-If it matches, tag it for the extra handling in **Step E3a** — regardless of whether it ends up actioned (Step D4), or resolved via discussion (Step E4). Track, per matched comment:
+If it matches, tag it for the extra handling in **Step E3a** — regardless of whether it ends up actioned (Step D4), or resolved via discussion (Step E4).
+
+A "Matt Pocock" comment is a **review, not a single request**: one comment body typically carries many independent findings, each with its own outcome. Do not collapse them into one verdict. Enumerate the findings first, then track them individually.
+
+**Enumerate the findings.** Walk the body and list every *actionable* finding — a bulleted judgement call, a lettered/numbered finding, a bold-headed paragraph making a claim about the code. Then exclude the lines that only report an absence of work:
+
+- `**(a) Missing/partial requirements:** None …`
+- `**No hard violations found.**`
+- `### Strengths`, summary/roll-up paragraphs, scope notes
+
+Those are **not findings** and must never be marked — a ✅ on a "nothing missing" line falsely implies work happened there. The count you put in the header (Step E3a) is the count of *actionable* findings only, so getting this exclusion right is what makes the header honest.
+
+**Track, per matched comment:**
 - Its `comment_id` and source endpoint (inline `/pulls/comments`, issue `/issues/comments`, or review-summary `/pulls/{pr_number}/reviews`)
-- Whether it was **applied** (a fix was committed) or **deferred** (skipped, discussion-only, or otherwise not applied) and, if deferred, a short reason
+- The **ordered list of actionable findings**, each with a stable handle taken from the body itself (`S1`, `(b)`, or a short quoted phrase from its first line) so the marker can be anchored to the right line in Step E3a
+
+**Track, per finding:**
+- **Outcome**: `applied` (a fix was committed) or `deferred` (skipped, discussion-only, or otherwise not applied)
+- If **applied**: the commit SHA(s), and — critically — whether the fix covers the *whole* finding or only part of it (see the overclaim rule in Step E3a)
+- If **deferred**: the specific reason, in the same terms the accompanying reply uses
 
 ### Step D4: Process Each Actionable Comment
 
@@ -474,7 +491,7 @@ Add to the final summary:
 - Comments addressed (with commit hashes)
 - Comments answered without a code change (discussion-only)
 - Comments skipped (and why — resolved, already fixed)
-- "Matt Pocock" format comments detected (and whether each was marked ✅ applied or ❌ deferred)
+- "Matt Pocock" format comments detected — for each, the per-finding tally (`{X} of {N} applied`) and which findings were deferred, with reasons
 
 ---
 
@@ -529,32 +546,73 @@ The explanation should be specific — say *why* the change wasn't applied, not 
 
 ### Step E3a: Update "Matt Pocock" Format Comments
 
-For every comment tagged in **Step D3a**, do this **in addition to** the normal reply (Step E2 if applied, Step E3/E4 if deferred/discussion-only) — never instead of it:
+For every comment tagged in **Step D3a**, do this **in addition to** the normal reply (Step E2 if applied, Step E3/E4 if deferred/discussion-only) — never instead of it.
 
-1. **Fetch the current comment body** (e.g. via `gh api repos/{owner}/{repo}/pulls/comments/{comment_id}`, or the issue/review equivalent) so the edit preserves everything except the header line.
-2. **Append a status marker to the `## Matt Pocock` header line only**, leaving the rest of the body untouched:
-   - **Applied**: `## Matt Pocock ✅ (applied)`
-   - **Deferred**: `## Matt Pocock ❌ (deferred — {short reason})`
-3. **PATCH the comment** using the endpoint matching its source:
+The goal is that someone re-reading the review months later sees each finding's outcome **next to that finding**, not aggregated at the top. A single header verdict cannot describe a seven-finding review, and forcing one produces a marker that is either vague or wrong.
+
+1. **Fetch the current comment body** (e.g. via `gh api repos/{owner}/{repo}/pulls/comments/{comment_id}`, or the issue/review equivalent) so the edit preserves every word except the lines you are marking. Write it to a file and edit that file — never retype the body.
+
+2. **Mark each actionable finding** enumerated in Step D3a, in place:
+
+   a. **Prefix the finding's own line** with its marker, immediately after any list bullet:
+   ```
+   - ✅ Judgement call — *Data Clumps*: `policy_requires_sick_note` and `timezone` travel …
+   - ❌ Judgement call — *Duplicated Code*: `local_date/2` and `local_end_date/2` are …
+   ```
+   For a bold-headed paragraph finding rather than a bullet, prefix the heading:
+   ```
+   ✅ **(b) Scope creep — reverses a documented design decision:** design.md states …
+   ```
+
+   b. **Add an outcome note directly beneath it** — a nested bullet under a bullet finding, a blockquote under a paragraph finding — carrying the evidence:
+   ```
+     - ✅ **Applied** in `{commit_name}`([{sha}](https://github.com/{owner}/{repo}/commit/{sha})). {What was done, in one or two sentences.}
+     - ❌ **Deferred (not applied).** {Why — specific and technical, not "out of scope".}
+   ```
+
+   c. **Leave every non-finding line untouched** — the exclusions listed in Step D3a. No marker on "None", "No hard violations found", Strengths, or summary paragraphs.
+
+3. **Do not let a ✅ overclaim.** A ✅ means *this finding was addressed*, not *the underlying problem is gone*. When the fix closes only part of what the finding raised, the ✅ stays but the note must state the limit plainly in the same breath:
+   ```
+     - ✅ **Applied** in `{commit}`([{sha}](…)) — but read precisely: **the coverage gap is closed, the regression is not fixed.** {What remains and why it was accepted.}
+   ```
+   A bare ✅ that reads as "fixed" when the defect was merely *pinned by a test* or *documented as accepted* is a false report. Prefer a longer, honest note over a clean but misleading mark.
+
+4. **Append a roll-up marker to the `## Matt Pocock` header line**, pointing at the inline markers rather than trying to replace them:
+   - All applied: `## Matt Pocock … ✅ (all {N} findings applied)`
+   - All deferred: `## Matt Pocock … ❌ (all {N} findings deferred — see inline notes)`
+   - **Mixed** (the common case): `## Matt Pocock … ✅ ({X} of {N} findings applied — {handles} deferred; per-finding markers inline below)`
+
+   `{N}` is the count of **actionable** findings from Step D3a — never the review's own summary count, which often includes no-op lines. Recount from your own enumeration and, if it disagrees with the review's stated total, trust yours and say so in the reply.
+
+5. **Verify every SHA before it goes into a marker** — with `git cat-file -e`, not `git rev-parse --verify`:
+   ```bash
+   git cat-file -e {full_sha} 2>/dev/null && echo "EXISTS" || echo "MISSING"
+   ```
+   `git rev-parse --verify` returns success for **any** well-formed 40-hex string, so it silently passes fabricated hashes. Never reconstruct a full SHA from a short one by hand — read it from `git log --format=%H`.
+
+6. **PATCH the comment** using the endpoint matching its source:
 
 ```bash
 # Inline PR review comment
 gh api repos/{owner}/{repo}/pulls/comments/{comment_id} \
   --method PATCH \
-  --field body="{full body, header line replaced with the marker version}"
+  --field body="$(cat {marked_body_file})"
 
 # Issue-level (PR thread) comment
 gh api repos/{owner}/{repo}/issues/comments/{comment_id} \
   --method PATCH \
-  --field body="{full body, header line replaced with the marker version}"
+  --field body="$(cat {marked_body_file})"
 
 # PR review summary body
 gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews/{review_id} \
   --method PUT \
-  --field body="{full body, header line replaced with the marker version}"
+  --field body="$(cat {marked_body_file})"
 ```
 
-The reason text for a deferred marker should match the reason given in the accompanying reply (Step E3's explanation or Step E4's answer) — keep them consistent.
+Pass the edited body from a file (`--field body="$(cat {file})"`), not an inline string — command-substitution output is not re-parsed, so backticks and quotes in the review survive intact.
+
+Each deferred finding's note must match the reason given in the accompanying reply (Step E3's explanation or Step E4's answer) — keep them consistent. After PATCHing, re-read the comment and confirm every enumerated finding carries exactly one marker and no non-finding line acquired one.
 
 ### Step E4: Reply to Discussion-Only Reviewer Comments
 
@@ -574,7 +632,7 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 - **Resolved threads** are skipped silently — no reply needed.
 - **Already-addressed comments** (where someone else's earlier reply or commit already mentions the fix) are skipped silently — no reply needed.
 - Always use the format `commit name([{sha}](https://github.com/{owner}/{repo}/commit/{sha}))` — the full SHA link resolves regardless of future force-pushes or rebases, and the commit name keeps the reply readable even when the PR UI shows a different (rebased) short hash.
-- **"Matt Pocock" format comments** (Step D3a) always get both the normal reply/answer *and* the Step E3a header-marker edit — the edit never replaces the reply.
+- **"Matt Pocock" format comments** (Step D3a) always get both the normal reply/answer *and* the Step E3a marker edit — the edit never replaces the reply. Note the division of labour: the **edit** records each finding's outcome inline, where the finding is; the **reply** carries the narrative and the commit list. Once the inline markers are in place the reply can be short — a pointer plus the commits — rather than restating every finding.
 
 ---
 
@@ -601,8 +659,9 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 - **Not all comments are fixes**: Treat questions/clarifications as discussion-only — answer them (Step E4) rather than guessing at a code change
 - **Ambiguous requests**: If the right fix isn't clear, ask the user before applying anything (per "Ask if unclear")
 - **Duplicate of a bot comment**: If the reviewer echoes something a bot already flagged, the earlier Part B/C fix counts — skip the duplicate and reply noting it
-- **"Matt Pocock" format comments**: A comment from `ruimfernandes` (or the specified reviewer) whose body begins with the literal header `## Matt Pocock` gets the extra Step D3a/E3a treatment — a ✅/❌ marker appended to its header line — on top of the normal reply, whether it was applied or deferred
-- **Multiple "Matt Pocock" items in one comment**: If a single comment body contains several `## Matt Pocock` sections (e.g. a checklist with repeated headers), mark each header line individually based on the outcome of its own item — don't collapse them into one marker
+- **"Matt Pocock" format comments**: A comment from `ruimfernandes` (or the specified reviewer) whose body begins with the literal header `## Matt Pocock` gets the extra Step D3a/E3a treatment — a ✅/❌ marker and outcome note on **each actionable finding**, plus a roll-up marker on the header line — on top of the normal reply, whatever the outcomes were
+- **Multiple findings in one "Matt Pocock" comment**: This is the normal case, not an edge case — one review body routinely carries several findings with different outcomes. Mark each finding individually per Step E3a; never collapse them into a single verdict. If the body also contains several repeated `## Matt Pocock` section headers (e.g. a checklist), give each section its own roll-up marker covering the findings beneath it
+- **A "Matt Pocock" finding whose fix is partial**: Mark it ✅ but state the limit in the outcome note (Step E3a's overclaim rule). Pinning a defect with a characterisation test, or recording it as an accepted trade-off, is *addressing the finding* — it is not *fixing the defect*, and the note must not let the two read the same
 
 ### GitHub Actions / CI
 - **All checks passing**: Skip Part A and proceed directly to Part B (CodeRabbit comments)
