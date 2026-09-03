@@ -335,39 +335,67 @@ Agent:
    This indicates a flaky test that may depend on timing, external services, 
    or test order.
 
+=== COMMENT THREADS: grouping inline comments ===
+
+6. Fetching /pulls/20318/comments once, grouping by (in_reply_to_id // id)...
+   Found 6 inline comments across 4 threads:
+   - thread 111 index.ex:1326                  [coderabbitai] (resolved)
+   - thread 222 payroll_management.ex:1148     [coderabbitai, github-actions]  ← 2 comments, 1 thread
+   - thread 333 payroll_management_test.exs:2560 [coderabbitai]
+   - thread 444 payroll_management.ex:210      [github-actions]
+
+   Note thread 222: a github-actions Credo reply sits inside a CodeRabbit
+   thread. It is ONE thread and gets ONE reply — handled in Part B, skipped
+   in Part C.
+
 === PART B: CodeRabbit Comments ===
 
-6. Reading comments from ~/.cursor/projects/.../pr-20318/comments.json
-7. Found 4 CodeRabbit comment threads:
-   - ✓ RESOLVED: index.ex (line 1326): N+1 query issue
-   - ⚠ UNRESOLVED: payroll_management.ex (line 1148): Tenant isolation
-   - ⚠ UNRESOLVED: payroll_management_test.exs (line 2560): Use Repo.update!
-   - ⚠ UNRESOLVED: payroll_management_test.exs (line 2605): Pass org struct
+7. Threads containing a coderabbitai[bot] comment: 111, 222, 333
+   - ✓ RESOLVED: thread 111 index.ex (line 1326): N+1 query issue — skip silently
+   - ⚠ UNRESOLVED: thread 222 payroll_management.ex (line 1148): Tenant isolation
+     ↳ reply in-thread [github-actions]: Credo - prefer guard clauses
+   - ⚠ UNRESOLVED: thread 333 payroll_management_test.exs (line 2560): Use Repo.update!
 
-8. Addressing unresolved comment 1/3: payroll_management.ex
+8. Addressing thread 222 (both comments read before changing anything):
    [Makes fix, creates commit]
    ✓ Committed: "fix: address CodeRabbit review - scope joins by organisation_id"
+   → thread 222 marked handled; Part C will skip it
 
 ... and so on
 
 === PART C: github-actions Comments ===
 
-9. Fetching github-actions inline and issue-level comments...
-10. Found 2 github-actions comment threads:
-    - ⚠ UNRESOLVED: payroll_management.ex (line 55): Credo - module missing @moduledoc
-    - ⚠ UNRESOLVED: payroll_management.ex (line 210): Credo - prefer guard clauses
+9. Threads containing a github-actions[bot] comment: 222, 444
+    - ⏭ SKIP thread 222 — already handled in Part B (its github-actions
+      comment has in_reply_to_id: 222, so it is not a new thread)
+    - ⚠ UNRESOLVED: thread 444 payroll_management.ex (line 210): Credo - guard clauses
 
-11. Addressing unresolved comment 1/2: payroll_management.ex
+10. Also fetching /pulls/20318/reviews and /issues/20318/comments
+    (not threaded — unaffected by grouping):
+    - ℹ INFORMATIONAL: coverage summary — note in summary, no reply
+
+11. Addressing thread 444: payroll_management.ex
     [Makes fix, creates commit]
-    ✓ Committed: "fix: address github-actions review - add @moduledoc and guard clauses"
+    ✓ Committed: "fix: address github-actions review - prefer guard clauses"
+
+=== PART E: Replies (one per thread) ===
+
+12. Collapsing comment → commit map onto threads:
+    - thread 222 → a1b2c3d  (covers BOTH its comments — one reply, not two)
+    - thread 333 → e4f5a6b
+    - thread 444 → c7d8e9f
+    3 replies for 5 unresolved comments — expected and correct.
+
+13. POST repos/sona-is/sona/pulls/20318/comments/222/replies
+    (note the PR number: pulls/comments/222/replies would 404)
 
 === SUMMARY ===
 - CI Issues Fixed: 2 (code quality)
 - Flaky Tests Identified: 1 (needs investigation)
-- CodeRabbit Comments Addressed: 3
-- CodeRabbit Comments Skipped: 1 (resolved)
-- github-actions Comments Addressed: 2
-- github-actions Comments Skipped: 0
+- Threads Addressed: 3 (5 comments)
+- Threads Skipped: 1 (thread 111, resolved)
+- Duplicate Threads Collapsed: 1 (thread 222, CodeRabbit + github-actions)
+- Replies Posted: 3 (one per thread)
 ```
 
 ---
