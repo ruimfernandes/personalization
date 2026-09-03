@@ -23,6 +23,56 @@ User says "Hunter" followed by:
 
 ---
 
+## Comment Threads: One Reply Per Thread
+
+Parts B, C, and D are organised by **author**, but GitHub organises inline comments by **thread**. These two groupings do not line up: a `coderabbitai[bot]` comment and a `github-actions[bot]` comment are frequently two comments in the *same* thread, and a human reviewer can reply inside a bot's thread. Treating each author as a separate population and replying per author puts **two Hunter replies on one thread**.
+
+**The rule: one Hunter reply per thread, never one per comment.**
+
+### Step T1: Build the thread-grouped comment set once
+
+Every inline comment from `/pulls/{pr_number}/comments` carries:
+
+- `id` — this comment
+- `in_reply_to_id` — present **only** when this comment is a reply inside an existing thread; it holds the **root comment's `id`**
+
+So the thread key is:
+
+```
+thread_root_id = comment.in_reply_to_id or comment.id
+```
+
+Fetch inline comments **once** for the whole run and group them:
+
+```bash
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments --paginate \
+  --jq 'group_by(.in_reply_to_id // .id)
+        | map({thread_root_id: (.[0].in_reply_to_id // .[0].id),
+               path: .[0].path,
+               line: (.[0].line // .[0].original_line),
+               comments: map({id, login: .user.login, body})})'
+```
+
+Steps B2, C1, and D1 then **filter this one grouped set** by author instead of re-fetching a flat per-author list. The same thread will often appear in Part B *and* Part C — that overlap is exactly what this section exists to catch.
+
+### Step T2: Consequences for the rest of the workflow
+
+1. **Address a thread as a whole, once.** Read every comment in a thread before changing any code — a later reply may narrow, contradict, or already answer the root. Fixing the CodeRabbit root in Part B and then separately "fixing" the `github-actions[bot]` reply in Part C is the same work done twice.
+2. **Reply to the thread root.** Pass `thread_root_id` as the comment id in every `/replies` call — not the `id` of a reply nested inside the thread.
+3. **One consolidated reply per thread.** If a thread's findings were partly applied and partly skipped, write a single reply covering both outcomes rather than an E2 reply *and* an E3 reply on the same thread.
+4. **Never post a second Hunter reply to a thread.** Before posting, scan the thread's comments for one authored by the current user (`gh api user --jq .login`) whose body starts with `Change applied on commit` or `Hunter (Rui's skill) feedback:`. If one exists, **edit it** instead of adding another:
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/comments/{existing_reply_id} \
+     --method PATCH \
+     --field body="{consolidated body}"
+   ```
+   (Editing a single review comment uses the no-PR-number form of the path; only `/replies` needs the PR number.)
+5. **Count threads, not comments, in the summary.** Report "3 threads addressed (5 comments)" rather than double-counting one thread under two authors.
+
+Review summaries (`/pulls/{pr_number}/reviews`) and issue-level comments (`/issues/{pr_number}/comments`) are not threaded this way and are unaffected by this section.
+
+---
+
 ## Part A: GitHub Actions Failures
 
 ### Step A1: Check CI Status
@@ -153,16 +203,22 @@ command -v gh 2>/dev/null | grep -v alias
 
 Filter comments where `user.login` is `"coderabbitai[bot]"` or `authorLogin` contains `coderabbit`.
 
+> **Filter threads, not comments**: work from the thread-grouped set built in **Step T1** and select every thread that *contains* a `coderabbitai[bot]` comment. A thread selected here may also contain `github-actions[bot]` or reviewer comments — handle all of them now, as one unit, and mark the thread done so Parts C and D skip it.
+
 > **Note**: The GitHub API returns bot accounts with a `[bot]` suffix (e.g. `coderabbitai[bot]`, `github-actions[bot]`). Always match with the suffix or use a contains/startswith check — filtering for just `"coderabbitai"` will miss all comments.
 
-### Step B3: Group Comments by File
+### Step B3: Group Comments by Thread, Then by File
 
-Organize the CodeRabbit comments by file path. Each comment contains:
+Group by `thread_root_id` first (**Step T1**), then organise those threads by file path. Each comment contains:
 - `path`: The file being commented on
 - `body`: The comment/suggestion content
 - `line` or `original_line`: Line number
+- `id`: This comment's id
+- `in_reply_to_id`: The root comment id when this comment is a reply within a thread — absent on thread roots
 - `isResolved`: Whether the comment thread is resolved (skip if true)
 - `diff_hunk`: Code context (from gh CLI)
+
+A thread's `path`/`line` come from its **root**; replies inside it carry the same location. Never treat a reply as a standalone comment with its own fix and its own reply.
 
 ### Step B4: Filter and Prioritize
 
@@ -174,7 +230,7 @@ Organize the CodeRabbit comments by file path. Each comment contains:
 When skipping an unresolved comment for any other reason (false positive, out of scope, not applicable), **post a reply explaining why** using the Hunter feedback prefix:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments/{thread_root_id}/replies \
   --method POST \
   --field body="Hunter (Rui's skill) feedback: {reason}"
 ```
@@ -356,6 +412,8 @@ Organize comments by source and file. Fields vary by endpoint:
 - **Inline comments** (`/pulls/comments`): `path`, `line`/`original_line`, `body`, `diff_hunk`
 - **Issue comments** (`/issues/comments`): no `path`/`line` — treat like review summaries
 
+> **Check `in_reply_to_id` first**: `github-actions[bot]` inline comments are very often **replies inside CodeRabbit threads**, not a separate population. For each one, resolve its `thread_root_id` (**Step T1**) and check whether that thread was already handled in Part B. If it was, do **not** process it again and do **not** reply again — fold anything new it raises into the Part B thread's single consolidated reply.
+
 Common sources of `github-actions[bot]` comments include:
 - **Credo / mix credo**: Inline style and code-quality suggestions
 - **Coverage reports**: File-level coverage drops
@@ -370,7 +428,7 @@ Common sources of `github-actions[bot]` comments include:
 Whenever you skip an **actionable-looking** comment (false positive, not applicable to this codebase/language, already addressed elsewhere), **post a reply explaining why** using the Hunter feedback prefix:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments/{thread_root_id}/replies \
   --method POST \
   --field body="Hunter (Rui's skill) feedback: {reason}"
 ```
@@ -428,6 +486,8 @@ gh api repos/{owner}/{repo}/issues/{pr_number}/comments --paginate
 Filter where `user.login` is exactly `"ruimfernandes"` (or the reviewer the user specified).
 
 > **Note**: Human logins have **no `[bot]` suffix** — match the login exactly. Do not apply the `[bot]` filtering rule from Parts B and C here.
+
+> **Check `in_reply_to_id` too**: a reviewer comment is often a reply inside a bot thread. Resolve its `thread_root_id` (**Step T1**); if that thread was already handled in Part B or C, fold the reviewer's point into that thread's single consolidated reply instead of opening a second one.
 
 ### Step D2: Group and Prioritize
 
@@ -497,7 +557,9 @@ Add to the final summary:
 
 ## Part E: Reply to Comments After Pushing
 
-**This step is mandatory.** After all fixes have been committed for Parts A–D, push everything and post a reply to every comment Hunter touched — the ones that were addressed, the ones that were skipped because they don't make sense to apply, and discussion-only reviewer comments that warrant an answer.
+**This step is mandatory.** After all fixes have been committed for Parts A–D, push everything and post **one reply per comment thread** Hunter touched — covering the findings that were addressed, the ones that were skipped because they don't make sense to apply, and discussion-only reviewer comments that warrant an answer.
+
+> Replies are posted **per thread**, not per comment (**Step T2**). A thread that produced both an applied fix and a skipped finding gets a single reply describing both — not one E2 reply plus one E3 reply.
 
 ### Step E1: Push All Commits
 
@@ -517,24 +579,36 @@ git log -1 --format=%s {commit_sha}
 https://github.com/{owner}/{repo}/commit/{commit_sha}
 ```
 
-### Step E2: Reply to Addressed Comments
+### Step E1a: Collapse the Comment → Commit Map onto Threads
 
-For each CodeRabbit / github-actions / reviewer inline comment that Hunter addressed with a commit, post a reply naming the commit, with the hash linked to its commit URL — a later rebase can rewrite the SHA into a dangling reference, so the commit name keeps the reply meaningful even if the linked hash no longer resolves:
+Before posting anything, rewrite the comment-id → commit-sha mapping into a **thread-id → outcomes** mapping:
+
+1. Replace each comment id with its `thread_root_id` (**Step T1**).
+2. Merge entries that collapse onto the same `thread_root_id` — a CodeRabbit root and a `github-actions[bot]` reply inside it become **one** entry with a combined outcome list.
+3. For each remaining thread, check whether Hunter has already replied in it (**Step T2**, rule 4). If so, PATCH that existing reply rather than posting a new one.
+
+Post exactly one reply per entry in this collapsed map. If the map has fewer entries than the number of comments Hunter touched, that is expected and correct.
+
+### Step E2: Reply to Addressed Threads
+
+For each thread in the collapsed map (**Step E1a**) that Hunter addressed with a commit, post a reply naming the commit, with the hash linked to its commit URL — a later rebase can rewrite the SHA into a dangling reference, so the commit name keeps the reply meaningful even if the linked hash no longer resolves:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments/{thread_root_id}/replies \
   --method POST \
   --field body="Change applied on commit {commit_name}([{commit_sha}](https://github.com/{owner}/{repo}/commit/{commit_sha}))"
 ```
 
-Use the inline comment's `id` (e.g. `PRRC_xxx` or numeric ID returned by `gh api`) for `{comment_id}`. One reply per addressed comment — even if multiple comments map to the same commit, reply on each individually.
+Use the thread's `thread_root_id` (the numeric inline-comment id returned by `gh api`) in the path. Note the path shape: the `/replies` sub-resource **requires the PR number** — `pulls/comments/{id}/replies` without it returns `404 Not Found`.
 
-### Step E3: Reply to Skipped Comments
+One reply per **thread**. Multiple addressed threads that map to the same commit each get their own reply; multiple comments inside one thread share a single reply.
 
-For each unresolved comment Hunter chose **not** to apply (false positive, out of scope, not applicable, already addressed elsewhere, informational-only that still warrants a response, etc.), post a reply with the Hunter feedback prefix:
+### Step E3: Reply to Skipped Threads
+
+For each thread Hunter chose **not** to apply (false positive, out of scope, not applicable, already addressed elsewhere, informational-only that still warrants a response, etc.), post a reply with the Hunter feedback prefix:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments/{thread_root_id}/replies \
   --method POST \
   --field body="Hunter (Rui's skill) feedback: {explanation}"
 ```
@@ -616,10 +690,10 @@ Each deferred finding's note must match the reason given in the accompanying rep
 
 ### Step E4: Reply to Discussion-Only Reviewer Comments
 
-For each human reviewer comment classified as discussion-only in Step D3 (a question or clarification with no code change), post a direct answer using the Hunter feedback prefix:
+For each human reviewer comment classified as discussion-only in Step D3 (a question or clarification with no code change), post a direct answer on its **thread root** using the Hunter feedback prefix:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments/{thread_root_id}/replies \
   --method POST \
   --field body="Hunter (Rui's skill) feedback: {answer}"
 ```
@@ -629,6 +703,8 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 ### Step E5: Notes
 
 - **Review-summary findings** (from `/pulls/{pr_number}/reviews`) have no per-finding comment ID — note them in the final summary instead of replying. Exception: a **"Matt Pocock" format** review-summary body (Step D3a) is addressable as a whole via its `review_id`, so it still gets the Step E3a edit even though it has no reply thread.
+- **One reply per thread, always.** Two Hunter replies on one thread is a defect, not a thoroughness signal. If it happens, delete the duplicate (`gh api repos/{owner}/{repo}/pulls/comments/{id} --method DELETE`) and consolidate into the surviving reply.
+- **`/replies` needs the PR number.** `repos/{owner}/{repo}/pulls/comments/{id}/replies` 404s. The correct path is `repos/{owner}/{repo}/pulls/{pr_number}/comments/{id}/replies`. The GET/PATCH/DELETE endpoints for a single review comment are the opposite — they take **no** PR number.
 - **Resolved threads** are skipped silently — no reply needed.
 - **Already-addressed comments** (where someone else's earlier reply or commit already mentions the fix) are skipped silently — no reply needed.
 - Always use the format `commit name([{sha}](https://github.com/{owner}/{repo}/commit/{sha}))` — the full SHA link resolves regardless of future force-pushes or rebases, and the commit name keeps the reply readable even when the PR UI shows a different (rebased) short hash.
@@ -645,20 +721,27 @@ If answering would require a decision Hunter shouldn't make on its own, surface 
 - **gh alias conflicts**: Use full path to gh binary or `command gh` to bypass aliases
 - **gh not installed**: Inform user and provide installation instructions
 
+### Comment Threads
+- **A `/replies` POST returns 404**: The PR number is missing from the path. Use `repos/{owner}/{repo}/pulls/{pr_number}/comments/{id}/replies` — the flat `pulls/comments/{id}/replies` form does not exist for replies, even though it is valid for GET/PATCH/DELETE of a single comment
+- **The same thread shows up in two Parts**: Normal. Bot and reviewer comments coexist in one thread. Resolve `in_reply_to_id` → `thread_root_id`, handle the thread once in whichever Part reaches it first, and skip it in the others
+- **Two Hunter replies landed on one thread**: Delete the later one (`gh api repos/{owner}/{repo}/pulls/comments/{id} --method DELETE`) and consolidate its content into the first. Prevent it by collapsing the comment map onto threads before posting (Step E1a)
+- **A reply's `path`/`line` looks wrong or missing**: Replies inherit their location from the thread root — read `path`/`line` from the root, not the reply
+
 ### github-actions Bot Comments
 - **No comments found**: Skip Part C and note it in the summary
 - **Wrong login filter**: The API returns `github-actions[bot]` and `coderabbitai[bot]` — filtering for `"github-actions"` or `"coderabbitai"` (without `[bot]`) returns zero results. Always use the full login with the `[bot]` suffix.
 - **Missing the review endpoint**: Bot review summaries appear in `/pulls/{pr_number}/reviews`, NOT in `/pulls/{pr_number}/comments` or `/issues/{pr_number}/comments`. Always query all three endpoints.
 - **Purely informational comments** (e.g. coverage summaries, deployment links): Skip — no actionable fix needed
 - **Outdated inline comments** (`position: null`): Use `diff_hunk` to locate the equivalent line in the current file state
-- **Duplicate suggestions**: If `github-actions[bot]` and CodeRabbit flag the same issue, the Part B fix counts — skip the duplicate in Part C
+- **Duplicate suggestions**: If `github-actions[bot]` and CodeRabbit flag the same issue, the Part B fix counts — skip the duplicate in Part C, and if they share a thread, skip the reply too (the Part B reply already covers it)
+- **Replies inside CodeRabbit threads**: `github-actions[bot]` comments with a non-null `in_reply_to_id` are part of an existing thread. They are not a separate comment population and must not receive their own reply
 
 ### Human Reviewer Comments
 - **No `[bot]` suffix**: Match the human login exactly (e.g. `ruimfernandes`) — the `[bot]` filtering rule from Parts B/C does not apply here
 - **Different reviewer**: If the user names another reviewer in the prompt, filter for that login instead of the `ruimfernandes` default
 - **Not all comments are fixes**: Treat questions/clarifications as discussion-only — answer them (Step E4) rather than guessing at a code change
 - **Ambiguous requests**: If the right fix isn't clear, ask the user before applying anything (per "Ask if unclear")
-- **Duplicate of a bot comment**: If the reviewer echoes something a bot already flagged, the earlier Part B/C fix counts — skip the duplicate and reply noting it
+- **Duplicate of a bot comment**: If the reviewer echoes something a bot already flagged, the earlier Part B/C fix counts — skip the duplicate and reply noting it. If the echo is a *reply inside* the bot's thread, add the note to that thread's single reply instead of posting a new one
 - **"Matt Pocock" format comments**: A comment from `ruimfernandes` (or the specified reviewer) whose body begins with the literal header `## Matt Pocock` gets the extra Step D3a/E3a treatment — a ✅/❌ marker and outcome note on **each actionable finding**, plus a roll-up marker on the header line — on top of the normal reply, whatever the outcomes were
 - **Multiple findings in one "Matt Pocock" comment**: This is the normal case, not an edge case — one review body routinely carries several findings with different outcomes. Mark each finding individually per Step E3a; never collapse them into a single verdict. If the body also contains several repeated `## Matt Pocock` section headers (e.g. a checklist), give each section its own roll-up marker covering the findings beneath it
 - **A "Matt Pocock" finding whose fix is partial**: Mark it ✅ but state the limit in the outcome note (Step E3a's overclaim rule). Pinning a defect with a characterisation test, or recording it as an accepted trade-off, is *addressing the finding* — it is not *fixing the defect*, and the note must not let the two read the same
