@@ -1,7 +1,7 @@
 ---
 name: janitor
-description: PR clean-up orchestrator. Takes a GitHub PR URL, requests the Sona code reviewer, has a sub-agent run Matt Pocock's /code-review against master and post it as a "## Matt Pocock review" PR comment, then runs Hunter 3 times, 10 minutes apart. Use when the user says "Janitor" or "/janitor" followed by a PR URL.
-argument-hint: "<PR_URL>"
+description: PR clean-up orchestrator. Takes a GitHub PR URL, requests the Sona code reviewer, has a sub-agent run Matt Pocock's /code-review against master and post it as a "## Matt Pocock review" PR comment, then runs Hunter 3 times (or as many as the caller asks), 10 minutes apart. Use when the user says "Janitor" or "/janitor" followed by a PR URL, or when another skill (such as Dwight) hands a PR over for review.
+argument-hint: "<PR_URL> [--hunter-runs=N] [caller context]"
 ---
 
 # Janitor
@@ -9,6 +9,12 @@ argument-hint: "<PR_URL>"
 Janitor takes an open PR and gets it reviewed and cleaned up on its own.
 
 The usual call is `/janitor <PR_URL>`.
+
+## Arguments
+
+- `<PR_URL>`: the PR to work on. Required, unless the current branch has a PR.
+- `--hunter-runs=N`: how many Hunter runs to do. Optional. The default is 3.
+- Caller context: optional free text after the PR URL. Another skill uses it to pass extra spec context (for example a Jira ticket and a decisions file) and extra rules (for example the model every sub-agent must use). Follow these rules, and pass them on to every sub-agent Janitor starts.
 
 ## Hard rule: autonomy
 
@@ -47,7 +53,8 @@ Spawn one `general-purpose` sub-agent. Give it:
 
 - The repo path, the branch, and the PR URL.
 - The instruction to invoke the `code-review` skill with the fixed point `master`.
-- The spec: the PR title and body (`gh pr view <PR_URL> --json title,body`), plus any linked Jira ticket the body mentions. Tell it to fetch the ticket with the Atlassian MCP if it can.
+- The spec: the PR title and body (`gh pr view <PR_URL> --json title,body`), plus any linked Jira ticket the body mentions. Tell it to fetch the ticket with the Atlassian MCP if it can. If the caller passed spec context, include all of it too.
+- Any rules the caller passed (for example the model to use). The `code-review` skill starts two sub-agents of its own, so tell it to pass those rules on.
 - The rules:
   - It must not ask anyone anything.
   - It must not edit code, commit, or push.
@@ -63,12 +70,12 @@ Check the result: the sub-agent returned a comment URL. If it did not, stop and 
 
 ## Step 4: Hunter loop
 
-Run Hunter **3 times** in total, 10 minutes apart.
+Run Hunter **N times** in total, 10 minutes apart. N is `--hunter-runs`, or 3 when it is not given.
 
 1. Invoke the `hunter` skill with the PR URL as the args. Hunter fixes CI failures, CodeRabbit comments, github-actions comments, and the `## Matt Pocock review` comment, then pushes and replies. Apply the autonomy rule to it.
 2. Record the result of the run: threads addressed, commits, CI status.
-3. If fewer than 3 runs are done, wait 10 minutes: run `sleep 600` with Bash `run_in_background: true` (timeout 700000). End the turn with a one-line status. When the sleep finishes you are re-invoked; start the next run. If background sleep is not available, use the `Monitor` tool with a 600-second wait instead.
-4. Stop after the 3rd run. Do not run a 4th, even if new comments arrive.
+3. If fewer than N runs are done, wait 10 minutes: run `sleep 600` with Bash `run_in_background: true` (timeout 700000). End the turn with a one-line status. When the sleep finishes you are re-invoked; start the next run. If background sleep is not available, use the `Monitor` tool with a 600-second wait instead.
+4. Stop after run N. Do not run one more, even if new comments arrive.
 
 ## Step 5: Final report
 

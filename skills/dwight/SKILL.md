@@ -1,6 +1,6 @@
 ---
 name: dwight
-description: Autonomous ticket-to-PR orchestrator. Takes a Jira ticket, reads it and the codebase, writes a plan, records doubts in claude-decisions.md (committed and pushed), implements with commits, opens a non-draft PR via Little, requests the Sona code reviewer, posts a Matt Pocock /code-review comment, then runs Hunter 4 times, 10 minutes apart. Use when the user says "Dwight" or "/dwight" followed by a Jira URL or ticket id, or continues a Dwight flow in the same chat (for example answering a decision or saying it is ready to implement).
+description: Autonomous ticket-to-PR orchestrator. Takes a Jira ticket, reads it and the codebase, writes a plan, records doubts in claude-decisions.md (committed and pushed), implements with commits, opens a non-draft PR via Little, then hands the PR to Janitor (Sona code reviewer request, Matt Pocock /code-review comment, and Hunter 4 times, 10 minutes apart). Use when the user says "Dwight" or "/dwight" followed by a Jira URL or ticket id, or continues a Dwight flow in the same chat (for example answering a decision or saying it is ready to implement).
 argument-hint: "<JIRA_URL> [present me the doubts]"
 model: claude-opus-5-5[1m]
 ---
@@ -45,7 +45,7 @@ When unsure, use autonomous mode.
 
 Once Dwight is invoked, the rest of the chat is a Dwight flow. Follow-ups like an answer to a decision, "go with B", "ready", or "implement" are Dwight inputs. Do not make the user repeat `/dwight`.
 
-Keep this state across turns: ticket key and URL, mode, branch, plan file path, decisions file status, current stage, PR number and URL, Hunter run count.
+Keep this state across turns: ticket key and URL, mode, branch, plan file path, decisions file status, current stage, PR number and URL, Janitor progress (Hunter run count).
 
 ## Stage 1: Read the ticket and the codebase
 
@@ -153,7 +153,7 @@ Follow the plan step by step.
 
 Before the PR, run the full checks for what changed: `mix format`, `mix credo --strict`, and the tests for every touched area (plus the frontend lint, typecheck, and tests if frontend code changed). Fix failures and commit the fixes.
 
-## Stage 6: Open the PR and request reviews
+## Stage 6: Open the PR
 
 ### 6.1 Create the PR with Little
 
@@ -165,42 +165,19 @@ create PR — base master, ticket <JIRA_URL>. Create it as a NON-draft PR (run `
 
 Then check it: `gh pr view --json number,url,isDraft`. If `isDraft` is true, run `gh pr ready <number>`. Save the number and URL.
 
-### 6.2 Request the Sona code reviewer
+## Stage 7: Review and clean up with Janitor
 
-```bash
-gh pr comment <number> --body "/sona-code-reviewer --model=claude-opus-5-5 --effort=medium"
-```
-
-### 6.3 Matt Pocock review
-
-Spawn one `general-purpose` sub-agent with `model: "opus"`. Give it:
-
-- The repo path and branch.
-- The instruction to invoke the `code-review` skill with the fixed point `master`.
-- The spec: the ticket URL, the full ticket text you fetched in Stage 1, and the path to `claude-decisions.md` if it exists. Tell it the decisions file records choices made on purpose.
-- The model rule: the `code-review` skill starts two sub-agents. Both must use `model: "opus"`.
-- The rules: it must not ask anyone anything. It must not edit code, commit, push, or post to GitHub. It returns the full review report as Markdown, and nothing else.
-
-Wait for the result. Write it to `<scratchpad>/dwight-<TICKET-KEY>-matt-pocock.md` with this exact first line, then a blank line, then the report:
+Invoke the `janitor` skill. Janitor requests the Sona code reviewer, posts the `## Matt Pocock review` comment, and runs Hunter. Pass args like:
 
 ```
-## Matt Pocock review
+<PR_URL> --hunter-runs=4
+Spec context: ticket <JIRA_URL>. Full ticket text: <the ticket text fetched in Stage 1>. Decisions file: <path to claude-decisions.md, or "none">. The decisions file records choices made on purpose.
+Rules: every sub-agent uses `model: "opus"`, including the two that `code-review` starts. Pushing, commenting, and replying on the PR is approved.
 ```
 
-Post it:
+Janitor runs inside this Dwight flow, so Dwight's autonomy and Opus rules still apply to it.
 
-```bash
-gh pr comment <number> --body-file <scratchpad>/dwight-<TICKET-KEY>-matt-pocock.md
-```
-
-## Stage 7: Hunter loop
-
-Run Hunter **4 times** in total, 10 minutes apart.
-
-1. Invoke the `hunter` skill with the PR URL as the args. Hunter fixes CI failures, CodeRabbit comments, github-actions comments, and the `## Matt Pocock review` comment, then pushes and replies. Apply the autonomy rule to it: where Hunter says "ask the user", decide yourself and explain the choice in the thread reply.
-2. Record the result of the run (threads addressed, commits, CI status).
-3. If fewer than 4 runs are done, wait 10 minutes: run `sleep 600` with Bash `run_in_background: true` (timeout 700000). End the turn with a one-line status. When the sleep finishes you are re-invoked; start the next run. If background sleep is not available, use the `Monitor` tool with a 600-second wait instead.
-4. Stop after the 4th run. Do not run a 5th, even if new comments arrive.
+When Janitor finishes, keep its results: the Matt Pocock review comment link and what each Hunter run did. Stage 8 uses them.
 
 ## Stage 8: Final report
 
