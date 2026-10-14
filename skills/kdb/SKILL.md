@@ -1,6 +1,6 @@
 ---
 name: kdb
-description: Generates step-by-step manual testing instructions for the current branch compared with `master`, focused on reproducing the old behavior on the platform and verifying the new behavior while logged in as a manager. When a Jira ticket is provided, always fetch it via the Atlassian MCP first. Use when the user says `KdB`, asks how to test a branch manually, wants manager-facing repro steps, or asks for before/after verification against `master`.
+description: Generates step-by-step manual testing instructions for the current branch compared with `master`, focused on reproducing the old behavior on the platform and verifying the new behavior while logged in as a manager. When a Jira ticket is provided, always fetch it via the Atlassian MCP first. Has an `agent` mode (`/kdb agent <PSQL_WEB_URL> <DB_NAME>`) that writes the plan for a video recording, with before/after tests and pgAdmin SQL checks. Use when the user says `KdB`, asks how to test a branch manually, wants manager-facing repro steps, or asks for before/after verification against `master`.
 ---
 
 # KdB
@@ -16,6 +16,13 @@ Default assumptions:
 - Compare the current branch against `master`.
 - The tester is logged in as a manager.
 - Prefer platform actions and visible outcomes over implementation details.
+
+## Modes
+
+KdB has two modes. Pick the mode from the first word after `/kdb` (or `KdB`).
+
+- **Default mode.** Anything that is not `agent`. Follow the rest of this file as written.
+- **Agent mode.** The first word is `agent`. Read the [Agent Mode](#agent-mode) section first. It adds rules on top of the default mode.
 
 ## Hard Rules
 
@@ -154,6 +161,142 @@ Expected on current branch: ...
 - Optional regression check
 ```
 
+## Agent Mode
+
+Trigger: `/kdb agent <PSQL_WEB_URL> <DB_NAME>`. A Jira URL or key may follow.
+
+In this mode the plan is written for a video recording. Someone, often the Nolan skill, will follow it step by step on camera.
+
+### A1. Check the arguments first
+
+Do this before anything else. Do not fetch Jira, read the diff, or ask questions until it passes.
+
+Read the words after `agent`:
+
+- `PSQL_WEB_URL` is the word that starts with `http://` or `https://`. Example: `http://127.0.0.1:54974/?key=7deb89f9-94c3-4a2f-9f73-5e57f0bbc1cd`.
+- `DB_NAME` is the other word that is not a Jira URL or Jira key. Example: `sona_demo_ssp_sandbox`.
+
+If either one is missing, reply with exactly this line and nothing else. Then stop.
+
+```text
+Can't move forward, need you to provide PSQL_WEB_URL and DB_NAME in order to write the plan
+```
+
+Never guess or invent a missing value. Never use a default.
+
+### A2. Gather context
+
+Same as the default mode: Jira first (when given), then the branch diff against `master`, then the chat.
+
+Use `DB_NAME` as the database for the whole plan. Every SQL query in the plan runs against it.
+
+### A3. Plan for the camera
+
+- **Split setup from recording.** Put everything the viewer does not need to see under "Setup (off camera)". Only the steps that show the behaviour go on camera.
+- **Use fixed, real data.** Name the org, site, manager, employees and dates. Give full UUIDs, never shortened ones. A recording can't stop to look for "an employee with an approved leave".
+- **Same data for before and after.** The before run and the after run must use the same records. If the before run changes data, say how to reset it before the after run. Or use a separate, identical record for each run, and say which is which.
+- **Make results visible.** Each expected result should be something the camera can see: a number, a label, a banner, a row. Say where on screen it appears.
+- **Keep each test short.** One behaviour per test. Give it a plain name, like "Story A: went home sick part-way through a shift".
+
+### A4. Tests with before and after
+
+Write one section per test. Each test has:
+
+- **Before, on `master`.** Steps and the expected result on `master`.
+- **After, on the current branch.** The same steps and the expected result on the branch.
+
+Skip the before only when it makes no sense. For example, the screen or flow doesn't exist on `master`. When you skip it, write `No before: <one-line reason>` in its place.
+
+End the plan with a summary table. One row per test. Columns: test, expected on `master`, expected on branch.
+
+### A5. SQL checks, only when they help
+
+Add a SQL check when the screen alone can't prove the result. Good reasons:
+
+- A step changes data that the screen doesn't fully show, such as a stored calculation or a status column.
+- A later step depends on data being in an exact state.
+- The video will quote a number, and the database is the proof.
+
+Skip SQL checks when the screen already shows the result clearly.
+
+Each SQL check must:
+
+- Be a read-only `SELECT`. If the setup needs data changes, describe them in the setup section instead, and flag them clearly.
+- Use real table and column names. Check them against the schema or migrations in the repo before writing the query.
+- Filter by the full UUIDs or exact values from the "Fixed facts" table.
+- Say when to run it, for example "after step 4".
+- Say the expected result on `master` and on the branch.
+
+Whenever the plan has at least one SQL check, include the "How to run a SQL check" section from the output format below. Use the user's real `PSQL_WEB_URL` and `DB_NAME`, not placeholders. Each SQL check then points back to it.
+
+### A6. Agent Mode Output Format
+
+````markdown
+## Manual Test Plan (for video recording)
+
+### Goal
+- What changed, in user terms
+
+### Fixed facts
+| Thing | Value |
+|---|---|
+| App | http://localhost:4000 |
+| Database | `<DB_NAME>` |
+| pgAdmin | <PSQL_WEB_URL> |
+| Organisation | <name> (`<full UUID>`) |
+| Manager login | <who> |
+| Employee | <name> (`<full UUID>`) |
+| Dates | <exact dates> |
+
+### How to run a SQL check
+1. Open <PSQL_WEB_URL> in the browser.
+2. Left click **Servers**.
+3. Right click **<DB_NAME>**.
+4. Left click **Query Tool**.
+5. A view opens where you can write a query. Paste the query and run it.
+
+### Setup (off camera)
+1. ...
+
+### Test 1: <plain name>
+
+#### Before, on `master`
+1. ...
+2. ...
+Expected on screen: ...
+
+SQL check 1.1 (after step 2):
+```sql
+SELECT ...
+```
+Expected on `master`: ...
+
+#### After, on current branch
+1. ...
+2. ...
+Expected on screen: ...
+
+SQL check 1.1 (after step 2): run the same query.
+Expected on branch: ...
+
+### Test 2: <plain name>
+#### Before, on `master`
+No before: <one-line reason>
+
+#### After, on current branch
+...
+
+### Summary
+| Test | Expected on `master` | Expected on branch |
+|---|---|---|
+| 1. ... | ... | ... |
+
+### Extra checks
+- Optional edge case worth showing
+````
+
+Leave out "How to run a SQL check" and all SQL check blocks when the plan has no SQL checks.
+
 ## Writing Guidelines
 
 - Use product language, not code jargon, when possible.
@@ -181,6 +324,16 @@ If the user already asked for `KdB`, keep the questions minimal and only ask wha
 ### Example Trigger
 
 `KdB for this ticket: <url>`
+
+### Example Agent Mode Trigger
+
+`/kdb agent http://127.0.0.1:54974/?key=7deb89f9-94c3-4a2f-9f73-5e57f0bbc1cd sona_demo_ssp_sandbox`
+
+### Example Agent Mode Blocking Response
+
+For `/kdb agent` with no arguments, or with only one of the two:
+
+`Can't move forward, need you to provide PSQL_WEB_URL and DB_NAME in order to write the plan`
 
 ### Example Blocking Response
 
