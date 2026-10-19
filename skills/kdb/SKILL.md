@@ -229,6 +229,21 @@ Each SQL check must:
 
 Whenever the plan has at least one SQL check, include the "How to run a SQL check" section from the output format below. Use the user's real `PSQL_WEB_URL` and `DB_NAME`, not placeholders. Each SQL check then points back to it.
 
+**Mark each SQL check On camera or Off camera.** You decide which, one check at a time. The recorder follows the label.
+
+- **On camera** when the viewer needs to see the proof. For example: the fix lives in a stored value the screen doesn't show, or the narration will quote a number that only the database holds.
+- **Off camera** when the check only confirms setup, or a state that a later step needs. The viewer doesn't need to see those.
+- When in doubt, ask: would the video be less convincing without this result on screen? If yes, it's On camera.
+
+An **On camera** check is filmed in pgAdmin at `PSQL_WEB_URL`, in the same browser that records the app. The viewer sees the query and the result rows. So:
+
+- Write it as a numbered step inside the test, so it runs at the right moment. Don't put it after the steps as a loose note.
+- Say what the camera should see in the **Data Output** panel: the number of rows and the exact values to point at.
+- Keep the query short enough to read on screen. Select only the columns the check needs, and give them clear names with `AS`.
+- Running the query with `psql` or the postgres MCP does not replace an On camera check.
+
+An **Off camera** check can be run any way, including `psql` or the postgres MCP. It is still numbered in the test, so the recorder knows when to run it.
+
 ### A6. Agent Mode Output Format
 
 ````markdown
@@ -249,11 +264,17 @@ Whenever the plan has at least one SQL check, include the "How to run a SQL chec
 | Dates | <exact dates> |
 
 ### How to run a SQL check
-1. Open <PSQL_WEB_URL> in the browser.
+**On camera** checks are filmed in pgAdmin, in the same browser as the app:
+1. Open <PSQL_WEB_URL>.
 2. Left click **Servers**.
 3. Right click **<DB_NAME>**.
 4. Left click **Query Tool**.
-5. A view opens where you can write a query. Paste the query and run it.
+5. Paste the query into the editor.
+6. Press **F5**, or click the **Execute** (▶) button.
+7. The result shows in the **Data Output** panel under the editor. Move the cursor to the values that matter and hold for 2–3 seconds.
+8. Go back to the app page you were on.
+
+**Off camera** checks can run any way, including `psql` or the postgres MCP.
 
 ### Setup (off camera)
 1. ...
@@ -264,20 +285,27 @@ Whenever the plan has at least one SQL check, include the "How to run a SQL chec
 1. ...
 2. ...
 Expected on screen: ...
-
-SQL check 1.1 (after step 2):
-```sql
-SELECT ...
-```
-Expected on `master`: ...
+3. **On camera, SQL check 1.1.** Open pgAdmin and run:
+   ```sql
+   SELECT ...
+   ```
+   Expected in Data Output on `master`: <row count, and the exact values to point at>
+4. Go back to the app page.
+5. **Off camera, SQL check 1.2.** Run:
+   ```sql
+   SELECT ...
+   ```
+   Expected on `master`: ...
 
 #### After, on current branch
 1. ...
 2. ...
 Expected on screen: ...
-
-SQL check 1.1 (after step 2): run the same query.
-Expected on branch: ...
+3. **On camera, SQL check 1.1.** Open pgAdmin and run the same query.
+   Expected in Data Output on branch: <row count, and the exact values to point at>
+4. Go back to the app page.
+5. **Off camera, SQL check 1.2.** Run the same query.
+   Expected on branch: ...
 
 ### Test 2: <plain name>
 #### Before, on `master`
@@ -295,7 +323,7 @@ No before: <one-line reason>
 - Optional edge case worth showing
 ````
 
-Leave out "How to run a SQL check" and all SQL check blocks when the plan has no SQL checks.
+Leave out "How to run a SQL check" and all SQL check blocks when the plan has no SQL checks. Leave out the On camera steps of "How to run a SQL check" when every check is Off camera.
 
 ## Writing Guidelines
 
