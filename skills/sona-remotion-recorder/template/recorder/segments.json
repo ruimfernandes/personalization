@@ -1,0 +1,5 @@
+{
+  "a_setup": {"run": "before", "from": "A_setup_start", "to": "A_setup_end", "from_offset": -0.5, "to_offset": 0.5, "cap": 2.0},
+  "a_before": {"run": "before", "from": "A_before_start", "to": "A_before_end", "to_offset": 3, "cap": 1.2},
+  "a_after": {"run": "after", "from": "A_after_start", "to": "A_after_end", "cap": 2.5}
+}
