@@ -28,11 +28,11 @@ From the plan, take:
 1. **Real app screens.** Record the local app. Use animated cards only for the title, problem, switch and summary. Don't mock product screens unless the user asks for it.
 2. **Always a voice-over.** Every scene, cards included, gets a narration line (see *Voice-over*).
 3. **Before, then after, on the same data.** "Before" is the PR's merge base (`git merge-base HEAD master`), not the latest master. Only the PR's code should differ between the two runs.
-4. **Log in the right way** (see *Login*). Open `http://localhost:4000/internal_admin/`. The login window closes by itself once the session is saved. Don't kill it before that.
+4. **Log in the right way** (see *Login*). By default, log in by yourself as the local account `recorder@local.test`, with no window and no wait for the user. Never ask anyone for their internal-admin password.
 5. **Verify with the database after every step that changes data,** against the plan's expected values, before you move on. If a number is off, stop and find out why. Don't record over a wrong state.
 6. **Say what's scripted.** If data was created with a script because the UI can't do it, the narration says so, once, in plain words.
 7. **Before you start, tell the user what you'll change** on their sandbox: rows you'll create, weeks you'll unlock or lock, branch switches. Ask before anything that can't be undone, and before restarting their dev server. The test plan itself counts as permission for the data changes it describes.
-8. **Follow the user's rules:** mix on the host (never Docker), plain language, British English.
+8. **Follow the user's rules:** mix on the host (never Docker), plain language, British English. The exception is a bos VM: there the backend is the `sona-backend` container, and it is the only Elixir.
 
 Read `references/sona-gotchas.md` before planning. It lists the traps that cost time before: past-shift creation, clock-ins, `.env`, recompiles, locks, SSP.
 
@@ -44,7 +44,9 @@ Read `references/sona-gotchas.md` before planning. It lists the traps that cost 
 
 | Script | What it does |
 |---|---|
-| `login.mjs [org_id]` | Visible browser at `/internal_admin/`. Saves the cookies of a *verified* session to `auth.json` (+ `auth.ok`), then closes the window itself. |
+| `ensure-recorder-admin.sh [backend_dir]` | Makes sure the local internal admin `recorder@local.test` exists, with a random password kept only in `~/.config/sona-recorder/admin.env` (owner-only). With no argument it finds the dev server on port 4000: on a laptop, mix runs on the host in the server's worktree, against the server's database; on a bos VM, it runs in the `sona-backend` container. Safe to re-run; a data import drops the account and the next run makes it again. |
+| `login-headless.mjs <org_id>` | The default login. Logs in as that account with no window, opens `/internal_admin/orgs/<org_id>/users`, ticks "Order by most roles", opens the first user and clicks "Impersonate user". Saves the cookies of a *verified* session to `auth.json` (+ `auth.ok`). On failure, saves `shots/login-<step>.png`. `HEADED=1` shows the browser. |
+| `login.mjs [org_id]` | Fallback only. A visible browser at `/internal_admin/` where the user logs in and impersonates by hand. Saves `auth.json` (+ `auth.ok`) the same way, then closes the window itself. |
 | `browser.sh start\|stop` | Long-lived headless Chrome on CDP `:9333`. Every step connects to it, so page state survives between steps. |
 | `x.mjs <shot> '<js>' [scope]` | Runs a step in that browser, then saves `shots/<shot>.png` and lists the visible controls. Helpers: `h.go(path, {waitGone})`, `h.roster(org, date)`, `h.click(locator \| {x,y})`, `h.move(x,y)`, `h.pause(ms)`, `h.mark(label)`. It draws a visible cursor with a click ripple and moves it smoothly. |
 | `rec.mjs <run>` | Background CDP screencast of that browser into `frames/<run>/`, with timestamps. Writes its PID to `.rec-<run>.pid`. Stop it with SIGTERM to that PID. |
@@ -63,19 +65,22 @@ Read `references/sona-gotchas.md` before planning. It lists the traps that cost 
 - List the stories, and the expected before/after numbers for each.
 - Find the dev server's worktree (`lsof … -d cwd`) and database (`backend/.env`, the dev server's env). Make sure the worktree has no tracked changes.
 - Query the database for the plan's user, org, site and dates. Look for existing data, lock state, and anything the plan assumes.
-- Tell the user, in a short list: what you'll create or change, which refs you'll switch between, and that you'll need them to log in once.
+- Tell the user, in a short list: what you'll create or change (including the local `recorder@local.test` admin, if it doesn't exist yet), and which refs you'll switch between.
 
 ### 2. Login (once per task)
 
-1. Copy the scripts, then run `node login.mjs <org_id>` **in the background** from the recorder directory.
-2. Tell the user, exactly:
-   - "A Chromium window is open at `http://localhost:4000/internal_admin/`."
-   - "Log in as internal admin, then impersonate a manager of `<org>`. Impersonating usually opens the roster. If it doesn't, open any page of that org."
-   - "The window closes by itself as soon as the session is saved. You don't need to close it."
-3. Wait for `auth.ok` to appear. Use a Monitor until-loop, not a sleep. Then check the session headlessly: open an org page with `x.mjs` and confirm it isn't the login page.
+You log in by yourself. Don't wait for the user, and don't open a login window.
+
+1. Copy the scripts, then run `bash ensure-recorder-admin.sh` from the recorder directory. It takes up to a minute, because it loads the app's code once to reach the database.
+2. Run `node login-headless.mjs <org_id>`. It impersonates the user with the most roles in that org. Say in one line who it impersonated. If the plan needs a particular manager and this user can't do the plan's steps, tell the user.
+3. Check the session headlessly: open an org page with `x.mjs` and confirm it isn't the login page.
 4. **Keep `auth.json` for the whole task, including follow-up requests** (more stories, re-renders). Deleting it forces another login. Delete it only at the very end, when the user says the video is final, or when you hand back and say that you're keeping it.
 
-Why the login is built this way, from what went wrong the first time:
+If a step fails, read the error line and `shots/login-<step>.png`, fix the cause, and run it again. Only if it still fails and the user is at their screen, offer the fallback: `node login.mjs <org_id>` in the background. That opens a window where they log in and impersonate by hand. Wait for `auth.ok` with a Monitor until-loop, not a sleep.
+
+Never put the recorder password in chat, Slack, a report, a commit or a log. It only works on this machine's local database.
+
+Why the session checks are built this way, from what went wrong with the manual login:
 
 - Saving when the URL left `/users/log_in` fired on an intermediate redirect (`/users/internal_admin`), before the user was logged in.
 - Matching the org id anywhere in the URL fired on `/internal_admin/orgs/<id>/users`, before impersonating.
@@ -83,7 +88,7 @@ Why the login is built this way, from what went wrong the first time:
 - A persistent Chrome profile doesn't keep the session, because session cookies are dropped on restart.
 - Saving with `context.storageState()` every few seconds made the window flicker and steal focus. It opens a hidden tab for each visited origin that no open tab is on.
 
-`login.mjs` fixes all five. It watches every tab, and only saves when a tab is on `/orgs/<id>/…` and a request with those cookies isn't redirected to a login page. It saves only the app's cookies (all `x.mjs` needs), once, then closes the window.
+Both login scripts avoid all five. They watch every tab, and only save when a tab is on `/orgs/<id>/…` and a request with those cookies isn't redirected to a login page. They save only the app's cookies (all `x.mjs` needs), once.
 
 ### 3. Explore before recording
 

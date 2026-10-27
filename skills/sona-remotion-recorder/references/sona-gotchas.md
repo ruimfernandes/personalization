@@ -9,7 +9,7 @@ Things that cost time in earlier recordings. Check the ones that apply before yo
 - **The dev server on :4000 runs from one worktree.** Check it with `lsof -a -p $(lsof -tiTCP:4000 -sTCP:LISTEN) -d cwd -Fn`. Switching branches in that worktree changes what the app serves. `scripts/switch_code.sh` checks this for you.
 - **Use the PR merge base as "before", not the latest master.** Get it with `git merge-base HEAD master`, then `git checkout --detach <sha>`. A checkout that touches hundreds of files can make the in-process recompile fail on "cannot define module Backend.Gettext". After that, the user has to restart the dev server. `master` may also be checked out in another worktree, so always use `--detach`.
 - **The postgres MCP shows `timestamp` columns shifted by the local offset.** In BST it shows an hour early. Check wall-clock times with `at time zone 'UTC' at time zone 'Europe/London'`, or trust the app.
-- **Internal-admin login.** The user logs in at `/internal_admin/`, then impersonates a manager. The recording runs as that impersonated manager. The purple "User: … " impersonation banner shows in the recording, which is fine.
+- **Internal-admin login.** `login-headless.mjs` logs in as the local `recorder@local.test`, then impersonates the org's user with the most roles. The recording runs as that impersonated manager. The purple "User: … " impersonation banner shows in the recording, which is fine.
 
 ## Creating demo data
 
