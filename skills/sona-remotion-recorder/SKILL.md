@@ -50,7 +50,7 @@ Read `references/sona-gotchas.md` before planning. It lists the traps that cost 
 | `rec.mjs <run>` | Background CDP screencast of that browser into `frames/<run>/`, with timestamps. Writes its PID to `.rec-<run>.pid`. Stop it with SIGTERM to that PID. |
 | `switch_code.sh <ref>` | Checks that the dev server runs from this worktree, checks out the ref (`--detach` for commits), triggers the recompile, and reports compile errors. |
 | `build_clips.py <workspace>` | Cuts frames into clips using `recorder/segments.json` and the markers. Caps idle gaps. Writes `video/public/clips/*.mp4` and `durations.json`. |
-| `tts.py <workspace> [voice] [rate]` | `video/narration.json` → `video/public/voice/*.wav` + `durations.json`, with macOS `say` (default voice Daniel, en_GB, 172 wpm). Only regenerates changed lines. |
+| `tts.py <workspace> [voice] [rate]` | `video/narration.json` → `video/public/voice/*.wav` + `durations.json`, with ElevenLabs when a key is found (`$ELEVENLABS_API_KEY`, or `bos-cred elevenlabs` on a bos VM), else macOS `say` (default voice Daniel, en_GB; `say` at 172 wpm). `TTS_ENGINE=say` or `=elevenlabs` forces one. Only regenerates changed lines. |
 
 `$SKILL_DIR/template/video/` is the Remotion project: Sona brand theme, UI primitives, `demo.tsx` (the scene list, clip scenes with the MASTER · BEFORE / BRANCH · AFTER tag, and title, points, switch and summary cards). Copy it to `<workspace>/video/`, then `npm install remotion @remotion/cli @remotion/google-fonts react@19 react-dom@19 && npm install -D typescript @types/react@19`. For brand details, load the `anthropic-skills:sona-new-brand` skill.
 
