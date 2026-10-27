@@ -6,8 +6,8 @@ video/public/voice/<scene_id>.wav plus durations.json. Only lines whose text,
 engine, voice or rate changed are regenerated. Default voice: Daniel (en_GB).
 
 Engine, first match wins:
-  1. ElevenLabs, when a key is found: $ELEVENLABS_API_KEY2, then
-     $ELEVENLABS_API_KEY, then `bos-cred elevenlabs` on a bos VM.
+  1. ElevenLabs, when a key is found: $ELEVENLABS_API_KEY, then
+     `bos-cred elevenlabs` on a bos VM.
   2. macOS `say` (172 wpm), when there is no key.
 Set TTS_ENGINE=say or TTS_ENGINE=elevenlabs to force one. An ElevenLabs error
 stops the run instead of falling back, so one video never mixes two voices.
@@ -25,9 +25,8 @@ ELEVEN_RATE = 24000                                  # pcm_24000: raw 16-bit mon
 
 
 def eleven_key():
-    for name in ('ELEVENLABS_API_KEY2', 'ELEVENLABS_API_KEY'):
-        if os.environ.get(name):
-            return os.environ[name]
+    if os.environ.get('ELEVENLABS_API_KEY'):
+        return os.environ['ELEVENLABS_API_KEY']
     if shutil.which('bos-cred'):
         r = subprocess.run(['bos-cred', 'elevenlabs'], capture_output=True, text=True)
         if r.returncode == 0 and r.stdout.strip():
