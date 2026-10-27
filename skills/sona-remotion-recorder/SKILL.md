@@ -1,7 +1,6 @@
 ---
 name: sona-remotion-recorder
-description: Records a before/after demo video of a branch on the real local app, with a voice-over, from a manual test plan. Drives a real browser, records the screen, runs the plan on master (PR merge base) then on the branch, and edits the clips with Remotion into a branded mp4 with narration. Run only when the user invokes /sona-remotion-recorder.
-disable-model-invocation: true
+description: Records a before/after demo video of a branch on the real local app, with a voice-over, from a manual test plan. Drives a real browser, records the screen, runs the plan on master (PR merge base) then on the branch, and edits the clips with Remotion into a branded mp4 with narration. Use only when someone explicitly asks for a demo video of a branch or PR (for example a coordinator's brief), or invokes /sona-remotion-recorder.
 ---
 
 # Sona Remotion Recorder
