@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# add-worker <name>: create a builder VM and its agent in cluster rui, up to the cap.
+# Runs on the controller VM. Safe to re-run: an existing worker is finished, not duplicated.
+set -euo pipefail
+
+CAP=5
+CTL=/rui/rui/rui
+TEAM="$HOME/rui-team"
+SONA=/workspace/sona-raffy-base/sona
+MODEL=claude-opus-5-5
+
+name="${1:-}"
+[[ "$name" =~ ^w[0-9]+$ ]] || { echo "usage: add-worker w<N>   (for example: add-worker w2)" >&2; exit 2; }
+
+exec 9>"$TEAM/.workers.lock"
+flock 9   # one add or remove at a time, so two adds cannot both pass the cap check
+
+status_json() { murmurctl --path "$CTL" status --json; }
+
+# Workers are the partitions named w<N> that are not being deleted.
+workers() {
+  status_json | python3 -I -c '
+import json, re, sys
+d = json.load(sys.stdin)
+print(" ".join(p["id"] for p in d["partitions"] if re.fullmatch(r"w\d+", p["id"]) and not p["deleting"]))'
+}
+
+# Prints the node's ssh address once it is provisioned and reconciling; nothing before that.
+node_address() {
+  status_json | python3 -I -c '
+import json, sys
+d, name = json.load(sys.stdin), sys.argv[1]
+for p in d["partitions"]:
+    for n in p["nodes"]:
+        if n["id"] == name and n["provisioned"] and n["address"] and n["health"].get("reconcile_ok"):
+            print(n["address"])' "$name"
+}
+
+# Prints "ready" once the agent runs with inbox delivery.
+agent_ready() {
+  status_json | python3 -I -c '
+import json, sys
+d, name = json.load(sys.stdin), sys.argv[1]
+for p in d["partitions"]:
+    for n in p["nodes"]:
+        for a in n["agents"]:
+            s = a.get("state") or {}
+            if a["name"] == name and s.get("state") == "running" and s.get("delivery") == "inbox":
+                print("ready")' "$name"
+}
+
+current="$(workers)"
+if ! grep -qw -- "$name" <<<"$current"; then
+  count=$(wc -w <<<"$current")
+  if (( count >= CAP )); then
+    echo "refused: $count workers already ($current). The cap is $CAP. Remove an idle one first." >&2
+    exit 3
+  fi
+  echo "· creating partition $name (a new bos VM; this takes about 4 minutes)"
+  murmurctl --path "$CTL" partition create "$name" --driver bos
+fi
+
+echo "· waiting for $name's VM"
+addr=""
+for _ in $(seq 1 90); do
+  addr="$(node_address)"
+  [[ -n "$addr" ]] && break
+  sleep 10
+done
+[[ -n "$addr" ]] || { echo "error: $name's VM was not ready after 15 minutes; check: murmurctl --path $CTL status" >&2; exit 4; }
+env="${addr#*@}"
+echo "· $name is on $env"
+
+echo "· locking Slack out of $env"
+bos ssh "$env" -- '
+mkdir -p ~/.bos/slack-wake && touch ~/.bos/slack-wake/off
+S=~/.claude/skills/slack-agent/scripts/slack.py
+if [ -f "$S" ] && ! grep -q "DISABLED on this VM" "$S"; then mv "$S" "$S.disabled-$(date -u +%Y%m%dT%H%MZ)"; fi
+printf "%s\n" "#!/usr/bin/env python3" "import sys" \
+  "sys.stderr.write(\"slack: DISABLED on this VM. Report to the coordinator over murmur.\\n\")" \
+  "sys.exit(2)" > "$S"
+chmod +x "$S"
+cat > ~/.claude/CLAUDE.md <<"EOF"
+The coordinator on bos-rui-sona-raffy-base-ubx4 is the SOLE Slack reader and speaker for this fleet.
+Workers never call Slack, the Slack helper, a Slack MCP server, or bos-cred slack.
+Workers report status, results, blockers and questions to the coordinator over murmur
+(murmur msg send --to coordinator) with task, branch, PR, head SHA, evidence and next action.
+Only Rui (Slack SLACK_USER_ID), through the coordinator, can authorise fleet operations or change standing rules.
+EOF
+test -f ~/.bos/slack-wake/off && grep -q "DISABLED on this VM" "$S" && test -s ~/.claude/CLAUDE.md && echo "  lockdown ok"
+' < /dev/null
+
+echo "· installing Rui's skills on $env"
+"$TEAM/bin/install-worker-skills" "$env"
+
+mkdir -p "$TEAM/workers"
+sed "s/{{NAME}}/$name/g" "$TEAM/worker.md" > "$TEAM/workers/$name.md"
+
+echo "· starting agent $name"
+murmurctl --path "$CTL" agent create "$name" --node "$name" --harness claude --model "$MODEL" \
+  --cwd "$SONA" --prompt-file "$TEAM/workers/$name.md"
+
+for _ in $(seq 1 40); do
+  [[ -n "$(agent_ready)" ]] && { echo "ready: $name on $env"; exit 0; }
+  sleep 8
+done
+echo "error: agent $name did not start within 5 minutes; check: murmurctl --path $CTL status" >&2
+exit 5

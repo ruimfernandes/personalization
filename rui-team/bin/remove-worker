@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# remove-worker <name> [--force]: delete a builder's agent and VM in cluster rui.
+# Runs on the controller VM. Refuses while the worker holds unsaved work, unless --force.
+set -euo pipefail
+
+CTL=/rui/rui/rui
+TEAM="$HOME/rui-team"
+SONA=/workspace/sona-raffy-base/sona
+
+name="${1:-}"; force="${2:-}"
+[[ "$name" =~ ^w[0-9]+$ ]] || { echo "usage: remove-worker w<N> [--force]" >&2; exit 2; }
+
+exec 9>"$TEAM/.workers.lock"
+flock 9
+
+addr="$(murmurctl --path "$CTL" status --json | python3 -I -c '
+import json, sys
+d, name = json.load(sys.stdin), sys.argv[1]
+for p in d["partitions"]:
+    for n in p["nodes"]:
+        if n["id"] == name and n["address"]:
+            print(n["address"])' "$name")"
+
+if [[ -z "$addr" ]]; then
+  echo "· $name has no VM address (not a worker, or never finished provisioning)"
+elif [[ "$force" != "--force" ]]; then
+  # Unsaved work: uncommitted changes, or commits not on the branch's remote (or not on master when there is no remote).
+  check="$(bos ssh "${addr#*@}" -- "cd $SONA && git status --porcelain | wc -l && \
+    { git rev-list --count @{u}..HEAD 2>/dev/null || git rev-list --count origin/master..HEAD; } && \
+    git branch --show-current" < /dev/null | tail -n 3)"
+  read -r dirty unpushed branch <<<"$(tr '\n' ' ' <<<"$check")"
+  if [[ "$dirty" != 0 || "$unpushed" != 0 ]]; then
+    echo "refused: $name has unsaved work on branch '$branch': $dirty changed files, $unpushed unpushed commits." >&2
+    echo "         Ask $name to push it, or re-run with --force to throw it away." >&2
+    exit 3
+  fi
+fi
+
+echo "· deleting agent $name and partition $name (its VM is reclaimed in the background)"
+murmurctl --path "$CTL" agent delete "$name" || true
+murmurctl --path "$CTL" partition delete "$name"
+rm -f "$TEAM/workers/$name.md"
+echo "removed: $name"
