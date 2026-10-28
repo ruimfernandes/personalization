@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# install-worker-skills <bos-env>: install Rui's skills on a worker VM. Runs on the controller VM.
+#   every skill in github.com/ruimfernandes/personalization (skills/*)
+#   Matt Pocock's skills: the Claude Code plugin mattpocock-skills@mattpocock (github.com/mattpocock/skills)
+#   from sona-marketplace (github.com/sona-is/marketplace): mb-query, bq-history, sona-remotion-recorder
+# Safe to re-run: it pulls the latest of the repo and replaces the installed copies.
+# A plugin that fails to install is reported and skipped; the worker is still created.
+set -euo pipefail
+
+env="${1:-}"
+[[ -n "$env" ]] || { echo "usage: install-worker-skills <bos-env>" >&2; exit 2; }
+
+bos ssh "$env" -- '
+set -e
+mkdir -p ~/src ~/.claude/skills
+fetch() {   # fetch <url> <dir>: clone once, then fast-forward to the latest
+  if [ -d "$2/.git" ]; then git -C "$2" pull -q --ff-only; else git clone -q --depth 1 "$1" "$2"; fi
+}
+install() {   # install <skill-dir>: replace ~/.claude/skills/<name> with a fresh copy
+  name=$(basename "$1")
+  rm -rf ~/.claude/skills/"$name"
+  cp -r "$1" ~/.claude/skills/"$name"
+  echo "  installed $name"
+}
+fetch https://github.com/ruimfernandes/personalization ~/src/personalization
+for d in ~/src/personalization/skills/*/; do install "${d%/}"; done
+
+# Plugins, not skills folders: Claude Code installs each from its marketplace. Agents load plugins
+# when they start, so this must run before the agent is created.
+plugin() {   # plugin <name>@<marketplace> <marketplace-source>: install once, at user scope
+  if claude plugin list 2>/dev/null | grep -q "$1"; then echo "  plugin $1 already installed"; return 0; fi
+  if ! claude plugin marketplace list 2>/dev/null | grep -q "^ *❯ ${1#*@}$"; then
+    claude plugin marketplace add "$2" >/dev/null 2>&1 || { echo "  WARNING: could not add marketplace $2 ($1 not installed)"; return 0; }
+  fi
+  if claude plugin install "$1" >/dev/null 2>&1 && claude plugin list 2>/dev/null | grep -q "$1"; then
+    echo "  installed plugin $1"
+  else
+    echo "  WARNING: could not install plugin $1"
+  fi
+}
+plugin mattpocock-skills@mattpocock mattpocock/skills
+plugin mb-query@sona-marketplace sona-is/marketplace
+plugin bq-history@sona-marketplace sona-is/marketplace
+plugin sona-remotion-recorder@sona-marketplace sona-is/marketplace
+' < /dev/null
