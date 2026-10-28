@@ -1,9 +1,0 @@
-{
-  "name": "sona-remotion-recorder-video",
-  "private": true,
-  "version": "1.0.0",
-  "scripts": {
-    "studio": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts Demo out/demo.mp4"
-  }
-}

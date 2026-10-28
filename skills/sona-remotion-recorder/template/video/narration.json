@@ -1,9 +1,0 @@
-{
-  "title": "This is a demo of a fix to <feature> in Sona. The ticket is CORE <number read aloud>.",
-  "problem": "<What goes wrong today, in plain words, one idea per sentence.>",
-  "a_setup": "<What the viewer sees in this clip.>",
-  "a_before": "<What happens on master, and why it is wrong.>",
-  "switch": "Now we switch to the branch. The data stays exactly the same.",
-  "a_after": "<What happens on the branch, and why it is right.>",
-  "summary": "<What changed, and what didn't.>"
-}
