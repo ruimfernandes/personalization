@@ -1,7 +1,7 @@
 ---
 name: dwight
-description: Autonomous ticket-to-PR orchestrator. Takes a Jira ticket, reads it and the codebase, writes a plan, records doubts in claude-decisions.md (committed and pushed), implements with commits, opens a non-draft PR via Little, then hands the PR to Janitor (Sona code reviewer request, Matt Pocock /code-review comment, and Hunter 4 times, 10 minutes apart). Use when the user says "Dwight" or "/dwight" followed by a Jira URL or ticket id, or continues a Dwight flow in the same chat (for example answering a decision or saying it is ready to implement).
-argument-hint: "<JIRA_URL> [present me the doubts]"
+description: Autonomous ticket-to-PR orchestrator. Takes a Jira ticket, reads it and the codebase, writes a plan, records doubts in claude-decisions.md (committed and pushed), optionally grills the plan and writes a spec (when asked to use grill-me), implements with commits, opens a non-draft PR via Little, then hands the PR to Janitor (Sona code reviewer request, Matt Pocock /code-review comment, and Hunter 4 times, 10 minutes apart). Use when the user says "Dwight" or "/dwight" followed by a Jira URL or ticket id, or continues a Dwight flow in the same chat (for example answering a decision or saying it is ready to implement).
+argument-hint: "<JIRA_URL> [present me the doubts] [use grill-me]"
 model: claude-opus-5-5[1m]
 ---
 
@@ -18,7 +18,7 @@ Dwight does not ask the user for permission, feedback, or confirmation. This hol
 - Never use `AskUserQuestion`. Never end a turn with a question to the user.
 - When a sub-skill (Little, Hunter, code-review, ...) says "ask the user", Dwight decides itself. It picks the option it thinks is best and writes down why.
 - Dwight is explicitly allowed to commit, push, open the PR, comment on the PR, and reply to review threads. Treat that as the user's standing approval.
-- The **only** exception is interactive mode's decision step (see below).
+- The **only** exception is interactive mode's decision step (see below). The grill-me step is always autonomous, even in interactive mode.
 
 If Dwight hits a real blocker it cannot resolve (tracked uncommitted changes in the way, a rebase conflict it cannot resolve safely, missing credentials), it stops. It reports the blocker and the stage. It does not guess around it.
 
@@ -41,11 +41,17 @@ Pick the mode from the user's message:
 
 When unsure, use autonomous mode.
 
+### Grill-me option
+
+Grill-me is off by default. Turn it on only when the user asks for it. Examples: "use grill-me", "with grill-me", "grill it". It works with either mode.
+
+When it is on, Stage 5 runs. When it is off, Stage 5 is skipped.
+
 ## Hard rule: chat-scoped activation
 
 Once Dwight is invoked, the rest of the chat is a Dwight flow. Follow-ups like an answer to a decision, "go with B", "ready", or "implement" are Dwight inputs. Do not make the user repeat `/dwight`.
 
-Keep this state across turns: ticket key and URL, mode, branch, plan file path, decisions file status, current stage, PR number and URL, Janitor progress (Hunter run count).
+Keep this state across turns: ticket key and URL, mode, grill-me on or off, branch, plan file path, decisions file status, current stage, PR number and URL, Janitor progress (Hunter run count).
 
 ## Stage 1: Read the ticket and the codebase
 
@@ -138,9 +144,81 @@ The user decides. Dwight never picks for them.
 
 If there are no doubts in interactive mode, say so, show the plan summary, and still wait for the go signal.
 
-## Stage 5: Implement
+## Stage 5: Grill and spec (only with grill-me)
 
-Follow the plan step by step.
+Skip this stage unless grill-me is on. When you skip it, go straight to Stage 6.
+
+This stage is fully autonomous in both modes. Dwight never asks the user anything here. In interactive mode, it starts right after the go signal from Stage 4.
+
+### 5.1 Grill the plan
+
+`mattpocock-skills:grill-with-docs` cannot be started with the Skill tool, because it sets `disable-model-invocation`. All it does is call two other skills. So Dwight calls them itself:
+
+1. Invoke `mattpocock-skills:grilling`.
+2. Invoke `mattpocock-skills:domain-modeling`.
+
+Then run the grilling session on the plan from Stage 3. Dwight asks the questions and also answers them:
+
+- The inputs are the ticket, the plan, and `claude-decisions.md`. The choices in `claude-decisions.md` are settled. Do not ask them again.
+- Work the design tree in rounds, as `grilling` says. Give every question a recommended answer.
+- Answer every question with its recommended answer. Do not wait for the user.
+- Look up facts yourself, as `grilling` says. Sub-agents use `model: "opus"`.
+- Stop when the frontier is empty. Treat that as shared understanding. Do not wait for a confirmation.
+- Follow `domain-modeling` for the glossary and ADRs. When it says to offer an ADR, decide yourself using its three rules.
+
+If an answer changes the plan, update the plan.
+
+### 5.2 Write `grill-me-results.md`
+
+Create `grill-me-results.md` at the repo root. Record every question, in the order asked:
+
+```markdown
+# Grill-me results: <TICKET-KEY>
+
+Ticket: <JIRA_URL>
+Answered by: Dwight, using the recommended answer every time.
+
+## Round 1
+
+### Q1: <question title>
+
+**Question:** <the full question>
+
+**Options:**
+- A: <option>
+- B: <option>
+
+**Answer:** <the recommended answer, and why>
+
+**Selected option:** <A | B>
+
+## Docs changed
+
+- <glossary or ADR file, and what changed — or "none">
+```
+
+When a question has no fixed options, leave out the options list. Write a short form of the answer as the selected option.
+
+Commit it with any glossary or ADR files the session changed. Stage the exact paths. Use a message like `docs: record grill-me results for <TICKET-KEY>`. Then `git push -u origin HEAD`.
+
+### 5.3 Write the spec
+
+`mattpocock-skills:to-spec` also sets `disable-model-invocation`. Read its file instead and follow it. Find it with `ls -d ~/.claude/plugins/cache/mattpocock/mattpocock-skills/*/skills/engineering/to-spec/SKILL.md` and use the highest version.
+
+Follow its process, with these changes:
+
+- Do not publish to the issue tracker. Do not add a triage label. Write the spec to `to-spec-results.md` at the repo root.
+- If it says to run `/setup-matt-pocock-skills`, ignore that. The file is the output.
+- When it says to check the test seams with the user, pick them yourself. Write the seams and why under **Testing Decisions**.
+- Use its spec template as written.
+
+If the spec shows a gap in the plan, update the plan.
+
+Commit it on its own with a message like `docs: add spec for <TICKET-KEY>`. Then `git push -u origin HEAD`.
+
+## Stage 6: Implement
+
+Follow the plan step by step. If Stage 5 ran, the code must also meet `to-spec-results.md`.
 
 - Follow the repo's conventions. `backend/AGENTS.md` is authoritative for the backend.
 - Run `mix` on the host, from this worktree's own `backend/` directory. Never through Docker.
@@ -153,9 +231,9 @@ Follow the plan step by step.
 
 Before the PR, run the full checks for what changed: `mix format`, `mix credo --strict`, and the tests for every touched area (plus the frontend lint, typecheck, and tests if frontend code changed). Fix failures and commit the fixes.
 
-## Stage 6: Open the PR
+## Stage 7: Open the PR
 
-### 6.1 Create the PR with Little
+### 7.1 Create the PR with Little
 
 Invoke the `little` skill with args like:
 
@@ -165,26 +243,27 @@ create PR — base master, ticket <JIRA_URL>. Create it as a NON-draft PR (run `
 
 Then check it: `gh pr view --json number,url,isDraft`. If `isDraft` is true, run `gh pr ready <number>`. Save the number and URL.
 
-## Stage 7: Review and clean up with Janitor
+## Stage 8: Review and clean up with Janitor
 
 Invoke the `janitor` skill. Janitor requests the Sona code reviewer, posts the `## Matt Pocock review` comment, and runs Hunter. Pass args like:
 
 ```
 <PR_URL> --hunter-runs=4
-Spec context: ticket <JIRA_URL>. Full ticket text: <the ticket text fetched in Stage 1>. Decisions file: <path to claude-decisions.md, or "none">. The decisions file records choices made on purpose.
+Spec context: ticket <JIRA_URL>. Full ticket text: <the ticket text fetched in Stage 1>. Decisions file: <path to claude-decisions.md, or "none">. Spec: <path to to-spec-results.md, or "none">. Grill results: <path to grill-me-results.md, or "none">. These files record choices made on purpose.
 Rules: every sub-agent uses `model: "opus"`, including the two that `code-review` starts. Pushing, commenting, and replying on the PR is approved.
 ```
 
 Janitor runs inside this Dwight flow, so Dwight's autonomy and Opus rules still apply to it.
 
-When Janitor finishes, keep its results: the Matt Pocock review comment link and what each Hunter run did. Stage 8 uses them.
+When Janitor finishes, keep its results: the Matt Pocock review comment link and what each Hunter run did. Stage 9 uses them.
 
-## Stage 8: Final report
+## Stage 9: Final report
 
 Keep it short:
 
 - PR URL.
 - Decisions: how many, who decided, and a link to `claude-decisions.md` on the branch (or "no decisions needed").
+- If grill-me ran: how many questions, links to `grill-me-results.md` and `to-spec-results.md`, and any glossary or ADR files changed.
 - Commits made during implementation.
 - Each Hunter run: what it fixed, what it skipped, and the CI status at the end.
 - Anything left open that a human should look at.
