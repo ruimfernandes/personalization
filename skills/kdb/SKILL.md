@@ -190,6 +190,22 @@ Same as the default mode: Jira first (when given), then the branch diff against 
 
 Use `DB_NAME` as the database for the whole plan. Every SQL query in the plan runs against it.
 
+### A2a. Pick the organisation
+
+Do this right after the Jira fetch, before reading the diff.
+
+Look for an organisation id in the ticket's summary, description and comments. That means a full UUID labelled `organisation_id`, `org_id` or "organisation".
+
+- **Found one.** Use it as the Organisation in "Fixed facts", and write `(from <ticket key>)` next to it. Don't ask about it.
+- **Found none, or no ticket was given.** Ask exactly this line, then stop and wait for the answer:
+
+  ```text
+  Do you want to use a specific organisation_id for the qa recording?
+  ```
+
+- **The answer is a UUID.** Use it as the Organisation.
+- **The answer is no.** Pick an organisation yourself, as in A3.
+
 ### A3. Plan for the camera
 
 - **Split setup from recording.** Put everything the viewer does not need to see under "Setup (off camera)". Only the steps that show the behaviour go on camera.
@@ -338,7 +354,7 @@ Leave out "How to run a SQL check" and all SQL check blocks when the plan has no
 
 Ask short follow-up questions if any of these are unclear:
 
-- Which manager persona or organization to use
+- Which manager persona or organization to use (in agent mode, A2a decides the organisation)
 - Which area of the platform is affected
 - What setup data is needed to trigger the bug
 - Whether the user wants a pure repro flow, a fix-verification flow, or both
