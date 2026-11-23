@@ -14,7 +14,7 @@ The usual call is `/janitor <PR_URL>`.
 
 - `<PR_URL>`: the PR to work on. Required, unless the current branch has a PR.
 - `--hunter-runs=N`: how many Hunter runs to do. Optional. The default is 3.
-- `--model=<opus|fable|sonnet|haiku>` and `--effort=<low|medium|high|xhigh|max>`: the model and effort for every sub-agent Janitor starts. Optional. See "Model and effort" below.
+- `--model=<opus|sonnet|haiku>` and `--effort=<low|medium|high|xhigh|max>`: the model and effort for every sub-agent Janitor starts. Optional. See "Model and effort" below.
 - Caller context: optional free text after the PR URL. Another skill uses it to pass extra spec context (for example a Jira ticket and a decisions file) and extra rules (for example the model every sub-agent must use). Follow these rules, and pass them on to every sub-agent Janitor starts.
 
 ## Hard rule: autonomy
@@ -33,11 +33,19 @@ When the caller passes `--model` or `--effort`:
 
 - Every `Agent` tool call passes them as `model` and `effort`.
 - Tell each sub-agent to pass the same `model` and `effort` to any sub-agent it starts. The `code-review` skill starts two of its own.
-- Step 2 uses the full model ID: `opus` is `claude-opus-5-5`, `fable` is `claude-fable-5-1`, `sonnet` is `claude-sonnet-5-5`, `haiku` is `claude-haiku-5-5`.
+- Step 2 uses the full model ID: `opus` is `claude-opus-5-5`, `sonnet` is `claude-sonnet-5-5`, `haiku` is `claude-haiku-5-5`.
 
 When they are not passed, sub-agents use their defaults, and Step 2 uses `claude-opus-5-5` and `medium`.
 
 Hunter runs inline in this session, so it uses the session's own model. `--model` does not change it.
+
+## Hard rule: never on Fable
+
+Janitor never runs on Fable. Check this before Step 1:
+
+- If `--model` names Fable, stop. Say that Janitor does not run on Fable, and tell the caller to use `--model=opus`.
+- If this session runs on a Fable model, stop. Say which model you are on, and tell the user to run `/model opus` and call Janitor again.
+- Never pass a Fable model to a sub-agent, to Hunter, or to the Sona code reviewer.
 
 ## Hard rule: chat-scoped activation
 
