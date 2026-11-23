@@ -1,5 +1,6 @@
 ---
 name: kdb
+argument-hint: agent <PSQL_WEB_URL> <DB_NAME> [Jira URL or key]
 description: Generates step-by-step manual testing instructions for the current branch compared with `master`, focused on reproducing the old behavior on the platform and verifying the new behavior while logged in as a manager. When a Jira ticket is provided, always fetch it via the Atlassian MCP first. Has an `agent` mode (`/kdb agent <PSQL_WEB_URL> <DB_NAME>`) that writes the plan for a video recording, with before/after tests and pgAdmin SQL checks. Use when the user says `KdB`, asks how to test a branch manually, wants manager-facing repro steps, or asks for before/after verification against `master`.
 ---
 
