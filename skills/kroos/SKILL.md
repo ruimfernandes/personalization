@@ -44,9 +44,9 @@ Run anything that calls `mix` one at a time. Workers and test-running scouts sha
 
 ## Hard rules
 
-**Autonomy.** Kroos never asks for permission, feedback, or confirmation. The one exception is the grill checkpoint in Stage 3.1.
+**Autonomy.** Kroos never asks for permission, feedback, or confirmation. There are two exceptions: the grill checkpoint in Stage 3.1, and the docs question in Stage 10.2.
 
-- Never use `AskUserQuestion`. Outside Stage 3.1, never end a turn with a question.
+- Never use `AskUserQuestion`. Outside those two places, never end a turn with a question.
 - When a sub-skill says "ask the user", decide yourself. Pick the best option and write down why.
 - Committing, pushing, opening the PR, commenting on it, and replying to review threads are approved.
 
@@ -56,7 +56,7 @@ Run anything that calls `mix` one at a time. Workers and test-running scouts sha
 
 **Host mix.** Run `mix` on the host, from this worktree's `backend/` directory. Never through Docker.
 
-**Chat scope.** Once Kroos is invoked, the rest of the chat is a Kroos flow. Treat follow-ups as Kroos input, for example answers to the grill. Keep this state: ticket key and URL, branch, docs folder, build plan path, current stage, PR number and URL, Hunter run count.
+**Chat scope.** Once Kroos is invoked, the rest of the chat is a Kroos flow. Treat follow-ups as Kroos input, for example answers to the grill. Keep this state: ticket key and URL, branch, docs folder and whether it is removed, build plan path, current stage, PR number and URL, Hunter run count, sub-agent tokens by tier.
 
 ## Stage 1: Read the ticket
 
@@ -145,20 +145,13 @@ Use scouts to find the real files. Then write ordered steps. Each step is one wo
 - **Goal:** what this step achieves, in one or two sentences.
 - **Spec:** the path to `spec.md`, and the user stories and decisions this step covers.
 - **Files:** the files to change, and one or two files to copy the style from.
-- **Constraints:** the fixed list below, plus anything specific to this step.
+- **Constraints:** anything specific to this step, plus the memory rules below.
 - **Verify:** the exact commands to run, for example `cd backend && mix test test/backend/ssp/piw_test.exs`.
 - **Commit:** the exact paths to stage and the commit message.
 
-Every brief includes these fixed constraints, word for word. The worker sees none of this chat and may not see your memory.
+The worker's own prompt already holds the fixed rules: host mix, the commit and git rules, no pushing, and no scope creep. Leave them out of the brief.
 
-```
-- Run mix on the host, from this worktree's backend/ directory. Never through Docker. Do not unset or override DATABASE_TEST_NAME or TEST_HTTP_PORT.
-- Make the commit this brief names once verification passes. Stage the exact paths with `git add <paths>`. Never `git add -A` or `git add .`. Never `--no-verify`. Never amend. If a commit fails, fix the cause and make a new commit.
-- Do not push.
-- Do not expand scope. If the brief is wrong or unclear, do the part you are sure of and report the rest.
-```
-
-Then copy in every rule from your memory and the CLAUDE.md files that applies to the files this step touches. Examples: explicit test fixtures with no factory magic, no custom macros, no new column without an anonymiser strategy, the SSP terminology.
+The worker sees none of this chat and may not see your memory. So copy into each brief every rule from your memory and the CLAUDE.md files that applies to the files this step touches. Examples: explicit test fixtures with no factory magic, no custom macros, no new column without an anonymiser strategy, the SSP terminology.
 
 ## Stage 6: Build
 
@@ -176,6 +169,8 @@ After the last step, have one scout run the full checks for what changed:
 - `mix credo --strict`
 - the tests for every touched area
 - the frontend lint, typecheck, and tests, if frontend code changed
+
+Tell the scout to quote each failure word for word: the file:line, the error text, and the failing test name. A summary is not enough, because the fix brief needs the real error.
 
 Send each failure to a worker as a fix brief, and review its commit as in step 2. When everything passes, run `git push`.
 
@@ -228,7 +223,37 @@ Write it yourself. You already hold everything. A sub-agent would need all of it
 - The commits: `git log --oneline origin/master..HEAD`.
 - Each Hunter run: what it fixed, what it skipped, and the CI status at the end.
 - Tiering: which build steps needed a fix brief, and which you took over yourself.
+- Tokens by tier: add up the `subagent_tokens` from each sub-agent result. Group them as scout, worker, Little, and the Opus agents for Janitor and Hunter. Your own session's tokens are not in these numbers. Say so.
+- Docs: whether `docs/kroos/<TICKET-KEY>/` is still on the branch, and that you are watching the PR for approval (Stage 10.2). The watch stops if this session closes.
 - Anything left open that a human should look at.
+
+Then start Stage 10.2.
+
+## Stage 10: Remove the Kroos docs
+
+The PR carries `docs/kroos/<TICKET-KEY>/grill-session.md` and `spec.md`. Rui decides whether they reach master.
+
+### 10.1 On request
+
+When the user asks to remove them (for example "remove the md files"):
+
+1. `git rm -r docs/kroos/<TICKET-KEY>/`
+2. Commit with a message like `docs: remove Kroos working files for <TICKET-KEY>`. Then `git push`.
+3. Reply with one line and the commit hash. Stop the watch from 10.2.
+
+### 10.2 Watch for approval
+
+If the folder is still on the branch, watch the PR. Run this with Bash `run_in_background: true`:
+
+```bash
+until s=$(gh pr view <PR_NUMBER> --json state,reviewDecision -q '.state + " " + .reviewDecision'); [[ "$s" == *APPROVED* || "$s" == MERGED* || "$s" == CLOSED* ]]; do sleep 900; done; echo "$s"
+```
+
+When it finishes, you are re-invoked. Run `git fetch` and check that the folder is still on the PR branch (`git ls-tree -d origin/<branch> docs/kroos/<TICKET-KEY>`).
+
+- **Approved, folder still there:** ask one question, then end the turn and wait: "PR #<number> is approved and still has `docs/kroos/<TICKET-KEY>/` (`grill-session.md`, `spec.md`). Remove them before you merge?" On yes, do 10.1. On no, leave them.
+- **Approved, folder gone:** do nothing.
+- **Merged or closed:** if the folder was merged, say so in one line. Do nothing else.
 
 ## Failure rules
 
