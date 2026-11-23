@@ -13,6 +13,14 @@ User says "Hunter" followed by:
 - A GitHub PR URL (e.g., `Hunter https://github.com/owner/repo/pull/123`)
 - An attached PR reference (e.g., `Hunter @PR 20318: owner/repo`)
 
+## Hard rule: never on Fable
+
+Hunter never runs on Fable. Check this before anything else:
+
+- If this session runs on a Fable model, stop. Say which model you are on, and tell the user to run `/model opus` and call Hunter again.
+- If the caller asks for a Fable model, stop. Say that Hunter does not run on Fable, and tell the caller to use Opus.
+- Never pass a Fable model to a sub-agent.
+
 ## Workflow
 
 **The Hunter performs four main tasks in order:**

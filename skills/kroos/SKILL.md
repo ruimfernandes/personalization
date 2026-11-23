@@ -210,9 +210,9 @@ Spec context: ticket <JIRA_URL>. Full ticket text: <the ticket text from Stage 1
 
 This does the Sona code reviewer request, the Matt Pocock review, and Hunter run 1. Check that its report has a link to the `## Matt Pocock review` comment. If it does not, stop and report.
 
-### 8.2 Hunter runs 2 to 4
+### 8.2 Hunter runs 2 and 3
 
-Repeat until Hunter has run 4 times in total:
+Hunter runs 3 times in total, with 2 waits: run 1 (in 8.1), wait, run 2, wait, run 3. Do this twice:
 
 1. Wait 10 minutes. Run `sleep 600` with Bash `run_in_background: true` (timeout 700000). End the turn with a one-line status. When the sleep finishes you are re-invoked. If background sleep is not available, use the `Monitor` tool with a 600-second wait.
 2. Start one sub-agent. Tell it to invoke the `hunter` skill with the PR URL as the args.
