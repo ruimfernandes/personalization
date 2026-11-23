@@ -14,6 +14,7 @@ The usual call is `/janitor <PR_URL>`.
 
 - `<PR_URL>`: the PR to work on. Required, unless the current branch has a PR.
 - `--hunter-runs=N`: how many Hunter runs to do. Optional. The default is 3.
+- `--model=<opus|fable|sonnet|haiku>` and `--effort=<low|medium|high|xhigh|max>`: the model and effort for every sub-agent Janitor starts. Optional. See "Model and effort" below.
 - Caller context: optional free text after the PR URL. Another skill uses it to pass extra spec context (for example a Jira ticket and a decisions file) and extra rules (for example the model every sub-agent must use). Follow these rules, and pass them on to every sub-agent Janitor starts.
 
 ## Hard rule: autonomy
@@ -25,6 +26,18 @@ Janitor runs unattended. It does not ask the user for permission, feedback, or c
 - Janitor is explicitly allowed to comment on the PR, commit, push, and reply to review threads. Treat that as the user's standing approval.
 
 If Janitor hits a real blocker it cannot resolve (tracked uncommitted changes in the way, missing credentials, a PR that is closed or merged), it stops. It reports the blocker and the step. It does not guess around it.
+
+## Model and effort
+
+When the caller passes `--model` or `--effort`:
+
+- Every `Agent` tool call passes them as `model` and `effort`.
+- Tell each sub-agent to pass the same `model` and `effort` to any sub-agent it starts. The `code-review` skill starts two of its own.
+- Step 2 uses the full model ID: `opus` is `claude-opus-5-5`, `fable` is `claude-fable-5-1`, `sonnet` is `claude-sonnet-5-5`, `haiku` is `claude-haiku-5-5`.
+
+When they are not passed, sub-agents use their defaults, and Step 2 uses `claude-opus-5-5` and `medium`.
+
+Hunter runs inline in this session, so it uses the session's own model. `--model` does not change it.
 
 ## Hard rule: chat-scoped activation
 
@@ -44,8 +57,10 @@ Once Janitor is invoked, the rest of the chat is a Janitor flow. Keep this state
 ## Step 2: Request the Sona code reviewer
 
 ```bash
-gh pr comment <PR_URL> --body "/sona-code-reviewer --model=claude-opus-5-5 --effort=medium"
+gh pr comment <PR_URL> --body "/sona-code-reviewer --model=<model ID> --effort=<effort>"
 ```
+
+Fill in the model ID and the effort from "Model and effort".
 
 ## Step 3: Matt Pocock review
 
@@ -54,7 +69,7 @@ Spawn one `general-purpose` sub-agent. Give it:
 - The repo path, the branch, and the PR URL.
 - The instruction to invoke the `code-review` skill with the fixed point `master`.
 - The spec: the PR title and body (`gh pr view <PR_URL> --json title,body`), plus any linked Jira ticket the body mentions. Tell it to fetch the ticket with the Atlassian MCP if it can. If the caller passed spec context, include all of it too.
-- Any rules the caller passed (for example the model to use). The `code-review` skill starts two sub-agents of its own, so tell it to pass those rules on.
+- The model and effort from "Model and effort", and any other rules the caller passed. The `code-review` skill starts two sub-agents of its own, so tell it to pass those rules on.
 - The rules:
   - It must not ask anyone anything.
   - It must not edit code, commit, or push.
