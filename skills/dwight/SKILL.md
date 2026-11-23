@@ -1,6 +1,6 @@
 ---
 name: dwight
-description: Autonomous ticket-to-PR orchestrator. Takes a Jira ticket, reads it and the codebase, writes a plan, records doubts in claude-decisions.md (committed and pushed), optionally grills the plan and writes a spec (when asked to use grill-me), implements with commits, opens a non-draft PR via Little, then hands the PR to Janitor (Sona code reviewer request, Matt Pocock /code-review comment, and Hunter 4 times, 10 minutes apart). Use when the user says "Dwight" or "/dwight" followed by a Jira URL or ticket id, or continues a Dwight flow in the same chat (for example answering a decision or saying it is ready to implement).
+description: Autonomous ticket-to-PR orchestrator. Takes a Jira ticket, reads it and the codebase, writes a plan, records doubts in claude-decisions.md (committed and pushed), optionally grills the plan and writes a spec (when asked to use grill-me), implements with commits, opens a non-draft PR via Little, then hands the PR to Janitor (Sona code reviewer request, Matt Pocock /code-review comment, and Hunter 3 times, 10 minutes apart). Use when the user says "Dwight" or "/dwight" followed by a Jira URL or ticket id, or continues a Dwight flow in the same chat (for example answering a decision or saying it is ready to implement).
 argument-hint: "<JIRA_URL> [present me the doubts] [use grill-me]"
 model: claude-opus-5-5[1m]
 ---
@@ -248,7 +248,7 @@ Then check it: `gh pr view --json number,url,isDraft`. If `isDraft` is true, run
 Invoke the `janitor` skill. Janitor requests the Sona code reviewer, posts the `## Matt Pocock review` comment, and runs Hunter. Pass args like:
 
 ```
-<PR_URL> --hunter-runs=4
+<PR_URL> --hunter-runs=3
 Spec context: ticket <JIRA_URL>. Full ticket text: <the ticket text fetched in Stage 1>. Decisions file: <path to claude-decisions.md, or "none">. Spec: <path to to-spec-results.md, or "none">. Grill results: <path to grill-me-results.md, or "none">. These files record choices made on purpose.
 Rules: every sub-agent uses `model: "opus"`, including the two that `code-review` starts. Pushing, commenting, and replying on the PR is approved.
 ```
