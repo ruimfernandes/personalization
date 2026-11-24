@@ -1,8 +1,7 @@
 ---
 name: kroos
-description: Ticket-to-PR flow on tiered models. Opus plans and reviews, Haiku scouts, Sonnet builds. Grills the ticket, writes a spec, implements, opens a PR, and hands it to Janitor.
+description: Ticket-to-PR flow on tiered models. Opus plans and reviews, Haiku scouts, Sonnet builds. Grills the ticket, writes a spec, implements, opens a PR, and hands it to Janitor. Use when the user or a coordinator says "Kroos" or "/kroos" followed by a Jira URL or ticket key, or continues a Kroos flow in the same chat.
 argument-hint: "[(model)] <JIRA_URL or ticket key>"
-disable-model-invocation: true
 ---
 
 # Kroos
